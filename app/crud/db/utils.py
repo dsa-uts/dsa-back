@@ -43,7 +43,7 @@ def validate_assignment(id: int, is_admin: bool = False, db: Session = Depends(g
 
 
 def check_path_exists(file_path: str) -> bool:
-    return os.path.exists(file_path)
+    return file_path is not None and os.path.exists(file_path)
 
 
 def read_text_file(file_path: str) -> str:
