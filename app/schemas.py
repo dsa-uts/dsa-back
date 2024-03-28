@@ -22,9 +22,11 @@ class SubAssignment(SubAssignmentBase):
     makefile: str
     required_file_name: str
     test_file_name: str
-    test_input: Optional[str] = None
-    test_output: Optional[str] = None
-    test_program: Optional[str] = None
+    test_input_dir: Optional[str] = None
+    test_output_dir: Optional[str] = None
+    test_program_dir: Optional[str] = None
+    test_case_name: Optional[str] = None
+    test_program_name: Optional[str] = None
 
     class Config:
         orm_mode = True

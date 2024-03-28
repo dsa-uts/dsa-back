@@ -47,15 +47,29 @@ def read_sub_assignment(
 ):
     utils.validate_assignment(id, is_admin, db)
     sub_assignment = assignments.get_sub_assignment(db, id=id, sub_id=sub_id)
-    if utils.check_path_exists(sub_assignment.test_output):
-        sub_assignment.test_output = utils.read_text_file(sub_assignment.test_output)
-    else:
-        sub_assignment.test_output = None
-    if utils.check_path_exists(sub_assignment.test_program):
-        sub_assignment.test_program = utils.read_text_file(sub_assignment.test_program)
-    else:
-        sub_assignment.test_program = None
-    return sub_assignment
+    detail = schemas.SubAssignmentDetail(
+        id=sub_assignment.id,
+        sub_id=sub_assignment.sub_id,
+        title=sub_assignment.title,
+        makefile=sub_assignment.makefile,
+        required_file_name=sub_assignment.required_file_name,
+        test_file_name=sub_assignment.test_file_name,
+        test_input=sub_assignment.test_input_dir,
+    )
+    print(sub_assignment.test_program_dir)
+    if utils.check_path_exists(sub_assignment.test_output_dir):
+        combined_path = os.path.join(
+            sub_assignment.test_output_dir, sub_assignment.test_case_name
+        )
+        detail.test_output = utils.read_text_file(combined_path)
+    if utils.check_path_exists(sub_assignment.test_program_dir):
+        print(sub_assignment.test_program_dir, sub_assignment.test_program_name)
+        combined_path = os.path.join(
+            sub_assignment.test_program_dir, sub_assignment.test_program_name
+        )
+        print(combined_path)
+        detail.test_program = utils.read_text_file(combined_path)
+    return detail
 
 
 @router.post("/upload/{id}/{sub_id}")
