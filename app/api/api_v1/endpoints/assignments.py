@@ -58,11 +58,12 @@ def read_sub_assignment(
     return sub_assignment
 
 
-@router.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+@router.post("/upload/{id}/{sub_id}")
+async def upload_file(id: int, sub_id: int, file: UploadFile = File(...)):
     upload_dir = "uploadedFiles"
     unique_filename = f"{uuid.uuid4()}_{file.filename}"
     file_path = os.path.join(upload_dir, unique_filename)
+    print(id, sub_id, file_path)
     try:
         os.makedirs(upload_dir, exist_ok=True)
         with open(file_path, "wb") as buffer:
