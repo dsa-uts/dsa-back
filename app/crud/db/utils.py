@@ -10,6 +10,10 @@ from . import assignments
 from ...dependencies import get_db
 from fastapi import Depends
 import os
+import logging
+from ... import schemas
+
+logging.basicConfig(level=logging.INFO)
 
 
 def is_active_assignment(
@@ -24,10 +28,27 @@ def is_active_assignment(
     return result
 
 
+def is_active_user(
+    user: models.User, current_time: datetime, tz: str = "Asia/Tokyo"
+) -> bool:
+    tz_info = pytz.timezone(tz)
+    current_time_tz = current_time.astimezone(tz_info)
+    start_date_check = (
+        user.active_start_date is None
+        or user.active_start_date.astimezone(tz_info) <= current_time_tz
+    )
+    end_date_check = (
+        user.active_end_date is None
+        or current_time_tz <= user.active_end_date.astimezone(tz_info)
+    )
+    result = start_date_check and end_date_check or user.disabled
+    logging.info(f"User: {user.username}, is_active: {result}")
+    return result
+
+
 def filter_assignments_by_time(
     assignments: List[models.Assignment], current_time: datetime, tz: str = "Asia/Tokyo"
 ) -> List[models.Assignment]:
-    tz_info = pytz.timezone(tz)
     filtered_assignments = []
     for assignment in assignments:
         if is_active_assignment(assignment, current_time, tz):
@@ -37,9 +58,16 @@ def filter_assignments_by_time(
 
 def validate_assignment(id: int, is_admin: bool = False, db: Session = Depends(get_db)):
     assignment = assignments.get_assignment(db, id=id)
-    is_active = is_active_assignment(assignment, datetime.now(timezone("Asia/Tokyo")))
-    if assignment is None or not (is_admin or is_active):
-        raise HTTPException(status_code=404, detail="Not Found")
+    if assignment is None:
+        logging.error(f"Assignment not found: {id}")
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    if not is_admin:
+        is_active = is_active_assignment(
+            assignment, datetime.now(timezone("Asia/Tokyo"))
+        )
+        logging.info(f"is_admin: {is_admin}, is_active: {is_active}")
+        if not is_active:
+            raise HTTPException(status_code=404, detail="Assignment not active")
 
 
 def check_path_exists(file_path: str) -> bool:

@@ -1,3 +1,4 @@
 __pycache__
 dsa_test_case/*
 dsa_test_program/*
+.env

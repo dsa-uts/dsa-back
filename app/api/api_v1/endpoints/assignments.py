@@ -1,4 +1,4 @@
-from ....crud.db import assignments, utils
+from ....crud.db import assignments, utils, users
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from ....dependencies import get_db
@@ -11,7 +11,10 @@ from fastapi.responses import JSONResponse
 import os
 import shutil
 import uuid
+import logging
+from typing import Optional
 
+logging.basicConfig(level=logging.INFO)
 
 router = APIRouter()
 
@@ -20,11 +23,11 @@ router = APIRouter()
 def read_assignments(
     skip: int = 0,
     limit: int = 10,
-    is_admin: bool = False,  # 今後adminを作ることを想定して．
     db: Session = Depends(get_db),
+    user: Optional[schemas.UserBase] = Depends(users.get_current_user),
 ) -> List[schemas.AssignmentBase]:
     assignments_list = assignments.get_assignments(db, skip=skip, limit=limit)
-    if not is_admin:
+    if user is None or user.disabled:
         current_time = datetime.now(timezone("Asia/Tokyo"))
         assignments_list = utils.filter_assignments_by_time(
             assignments_list, current_time
@@ -34,18 +37,29 @@ def read_assignments(
 
 @router.get("/{id}", response_model=List[schemas.SubAssignmentBase])
 def read_sub_assignments(
-    id: int, is_admin: bool = False, db: Session = Depends(get_db)
+    id: int,
+    db: Session = Depends(get_db),
+    user: Optional[schemas.UserBase] = Depends(users.get_current_user),
 ):
-    utils.validate_assignment(id, is_admin, db)
+    if user is None or user.disabled:
+        utils.validate_assignment(id, False, db)
+    else:
+        utils.validate_assignment(id, True, db)
     sub_assignments_list = assignments.get_sub_assignments(db, id=id)
     return sub_assignments_list
 
 
 @router.get("/{id}/{sub_id}", response_model=schemas.SubAssignmentDetail)
 def read_sub_assignment(
-    id: int, sub_id: int, is_admin: bool = False, db: Session = Depends(get_db)
+    id: int,
+    sub_id: int,
+    db: Session = Depends(get_db),
+    user: Optional[schemas.UserBase] = Depends(users.get_current_user),
 ):
-    utils.validate_assignment(id, is_admin, db)
+    if user is None or user.disabled:
+        utils.validate_assignment(id, False, db)
+    else:
+        utils.validate_assignment(id, True, db)
     sub_assignment = assignments.get_sub_assignment(db, id=id, sub_id=sub_id)
     detail = schemas.SubAssignmentDetail(
         id=sub_assignment.id,
@@ -56,18 +70,15 @@ def read_sub_assignment(
         test_file_name=sub_assignment.test_file_name,
         test_input=sub_assignment.test_input_dir,
     )
-    print(sub_assignment.test_program_dir)
     if utils.check_path_exists(sub_assignment.test_output_dir):
         combined_path = os.path.join(
             sub_assignment.test_output_dir, sub_assignment.test_case_name
         )
         detail.test_output = utils.read_text_file(combined_path)
     if utils.check_path_exists(sub_assignment.test_program_dir):
-        print(sub_assignment.test_program_dir, sub_assignment.test_program_name)
         combined_path = os.path.join(
             sub_assignment.test_program_dir, sub_assignment.test_program_name
         )
-        print(combined_path)
         detail.test_program = utils.read_text_file(combined_path)
     return detail
 

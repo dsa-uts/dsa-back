@@ -1,4 +1,4 @@
-from .main import SessionLocal
+from .crud.db.__init__ import SessionLocal
 
 
 def get_db():
