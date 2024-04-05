@@ -22,17 +22,17 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 
-def get_user(db: Session, username: str):
+def get_user(db: Session, username: str) -> User | None:
     user: User | None = db.query(User).filter(User.username == username).first()
     return user
 
 
-def get_users(db: Session):
+def get_users(db: Session) -> List[User]:
     users = db.query(User).all()
     return users
 
 
-def exist_user(db: Session, username: str):
+def exist_user(db: Session, username: str) -> bool:
     user = db.query(User).filter(User.username == username).first()
     if user:
         return True
@@ -41,7 +41,7 @@ def exist_user(db: Session, username: str):
 
 async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)], db: Session = Depends(get_db)
-):
+) -> UserBase:
     if token is None or authorize.is_valid_token(db, token) is False:
         return constants.GUEST
     try:
