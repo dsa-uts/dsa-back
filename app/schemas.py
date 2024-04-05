@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict, Any
 
 
 class SubAssignmentBase(BaseModel):
@@ -114,3 +114,10 @@ class AuthCode(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class ProgressMessage(BaseModel):
+    status: str
+    message: str
+    progress_percentage: int
+    result: Optional[Dict[str, Any]] = None
