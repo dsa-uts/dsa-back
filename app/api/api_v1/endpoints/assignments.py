@@ -1,4 +1,5 @@
 from ....crud.db import assignments, utils, users
+from ....crud.utils import send_heartbeat
 from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy.orm import Session
 from ....dependencies import get_db
@@ -14,6 +15,7 @@ import asyncio
 import uuid
 import shutil
 import json
+import asyncio
 
 logging.basicConfig(level=logging.INFO)
 
@@ -106,6 +108,8 @@ async def upload_file(id: int, sub_id: int, file: UploadFile = File(...)):
 async def process_progress_ws(websocket: WebSocket, id: int, sub_id: int):
     await websocket.accept()
 
+    # ハートビート送信のタスク開始
+    asyncio.create_task(send_heartbeat(websocket))
     # filenameを受け取る．uuidがあるためどのファイルかを識別できる．
     data = await websocket.receive_text()
     data_dict = json.loads(data)
