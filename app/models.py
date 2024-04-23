@@ -34,7 +34,7 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(255), nullable=False)
-    hashed_password = Column(String, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
     is_admin = Column(Boolean, default=False)
     disabled = Column(Boolean, default=False)
     created_at = Column(DateTime, nullable=False)
