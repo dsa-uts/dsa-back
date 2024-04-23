@@ -3,16 +3,47 @@ import zipfile
 import tarfile
 import py7zr
 import rarfile
+import shutil
 
 
 def check_path_exists(file_path: str) -> bool:
     return file_path is not None and os.path.exists(file_path)
 
 
+def is_dir(dir_path: str) -> bool:
+    return check_path_exists(dir_path) and os.path.isdir(dir_path)
+
+
+def is_file(file_path: str) -> bool:
+    return check_path_exists(file_path) and os.path.isfile(file_path)
+
+
 def read_text_file(file_path: str) -> str:
     with open(file_path, "r") as f:
         text = f.read()
     return text
+
+
+def mkdir(dir_path: str) -> None:
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+
+
+def copy_file(src: str, dst: str) -> None:
+    """
+    引数src, dstともにファイル名まで含めたパスを指定する．
+    dstに同名のファイルが存在する場合上書きする．
+    ディレクトリは作成しないのでdstのディレクトリを事前に作成しておくこと．
+    """
+    shutil.copyfile(src, dst)
+
+
+def copy_directory(src_dir: str, dst_dir: str) -> None:
+    """
+    src_dirで指定されたディレクトリとその中のファイルをdst_dirにコピーする．
+    dst_dirが既に存在する場合は，その中身を上書きする．
+    """
+    shutil.copytree(src_dir, dst_dir, dirs_exist_ok=True)
 
 
 # --- 解凍処理を行う関数 ---

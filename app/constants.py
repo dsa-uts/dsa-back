@@ -6,3 +6,7 @@ GUEST = UserBase(
     is_admin=False,
     disabled=True,
 )
+
+UPLOAD_DIR = "/app/uploadedFiles"
+
+TEST_PROGRAM_DIR = "/app/dsa_test_program"

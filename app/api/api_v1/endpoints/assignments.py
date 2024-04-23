@@ -17,6 +17,7 @@ import uuid
 import shutil
 import json
 import asyncio
+from .... import constants as constants
 
 logging.basicConfig(level=logging.INFO)
 
@@ -92,14 +93,15 @@ def read_sub_assignment(
 # その場合makefile等がそのまま使えるはず．uuid + filenameの場合はスペースでsplitして使う(?)
 @router.post("/upload/{id}/{sub_id}")
 async def upload_file(id: int, sub_id: int, file: UploadFile = File(...)):
-    upload_dir = "uploadedFiles"
-    unique_filename = f"{uuid.uuid4()}_{file.filename}"
-    file_path = os.path.join(upload_dir, unique_filename)
+    unique_id = str(uuid.uuid4())  # UUIDを文字列に変換
+    upload_dir = os.path.join(constants.UPLOAD_DIR, unique_id)  # ディレクトリパスを修正
+    upload_dir = os.path.join(upload_dir, "submit")
+    file_path = os.path.join(upload_dir, file.filename)
     try:
         os.makedirs(upload_dir, exist_ok=True)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        return {"filename": unique_filename, "result": "success"}
+        return {"unique_id": unique_id, "filename": file.filename, "result": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File upload failed: {e}")
 
@@ -115,6 +117,7 @@ async def process_progress_ws(websocket: WebSocket, id: int, sub_id: int):
     data = await websocket.receive_text()
     data_dict = json.loads(data)
     filename = data_dict["filename"]
+    unique_id = data_dict["unique_id"]
     # 本来はdockerから進捗を受け取る処理を記述
     # コンパイルすべきファイルが複数ある場合や，実行するファイルが複数ある場合は，(1/n)のように返しても良いかも．
     # 例えば，「コンパイル中(1/3)」
