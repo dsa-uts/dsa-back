@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy.orm import Session
 from ....dependencies import get_db
 from .... import schemas
+from .... import models
 from typing import List, Optional
 from datetime import datetime
 from pytz import timezone
@@ -17,7 +18,8 @@ import uuid
 import shutil
 import json
 import asyncio
-from .... import constants as constants
+from .... import constants as constant
+from .... import submission_class
 
 logging.basicConfig(level=logging.INFO)
 
@@ -65,26 +67,14 @@ def read_sub_assignment(
         utils.validate_assignment(id, False, db)
     else:
         utils.validate_assignment(id, True, db)
-    sub_assignment = assignments.get_sub_assignment(db, id=id, sub_id=sub_id)
-    detail = schemas.SubAssignmentDetail(
-        id=sub_assignment.id,
-        sub_id=sub_assignment.sub_id,
-        title=sub_assignment.title,
-        makefile=sub_assignment.makefile,
-        required_file_name=sub_assignment.required_file_name,
-        test_file_name=sub_assignment.test_file_name,
-        test_input=sub_assignment.test_input_dir,
+    sub_assignment: models.SubAssignment = assignments.get_sub_assignment(
+        db, id=id, sub_id=sub_id
     )
-    if file_operation.check_path_exists(sub_assignment.test_output_dir):
-        combined_path = os.path.join(
-            sub_assignment.test_output_dir, sub_assignment.test_case_name
-        )
-        detail.test_output = file_operation.read_text_file(combined_path)
-    if file_operation.check_path_exists(sub_assignment.test_program_dir):
-        combined_path = os.path.join(
-            sub_assignment.test_program_dir, sub_assignment.test_program_name
-        )
-        detail.test_program = file_operation.read_text_file(combined_path)
+    assignment_title = assignments.get_assignment(db, id).test_dir_name
+    detail = schemas.SubAssignmentDetail(sub_assignment=sub_assignment)
+    detail.set_test_program(assignment_title)
+    detail.set_test_output(assignment_title)
+    logging.info(f"detail: {detail}")
     return detail
 
 
@@ -92,15 +82,22 @@ def read_sub_assignment(
 # uuid + filenameにしてるけど，uuidをディレクトリ名にしてその下に普通にfilenameを配置するのでも良いかも．
 # その場合makefile等がそのまま使えるはず．uuid + filenameの場合はスペースでsplitして使う(?)
 @router.post("/upload/{id}/{sub_id}")
-async def upload_file(id: int, sub_id: int, file: UploadFile = File(...)):
+async def upload_file(
+    id: int, sub_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)
+):
     unique_id = str(uuid.uuid4())  # UUIDを文字列に変換
-    upload_dir = os.path.join(constants.UPLOAD_DIR, unique_id)  # ディレクトリパスを修正
-    upload_dir = os.path.join(upload_dir, "submit")
-    file_path = os.path.join(upload_dir, file.filename)
+    sub_assignment = assignments.get_sub_assignment(db, id, sub_id)
     try:
-        os.makedirs(upload_dir, exist_ok=True)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        submission = submission_class.FormatCheckClass(
+            sub_assignment, [unique_id], file
+        )
+        try:
+            # __init__メソッド後の処理
+            logging.info(f"submission: {submission.root_dir_path}")
+            logging.info(f"submisson: {submission.id}, {submission.unique_id}")
+        except Exception as e:
+            logging.error(f"An error occurred: {e}")
+        submission.build_docker_mount_directory()
         return {"unique_id": unique_id, "filename": file.filename, "result": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File upload failed: {e}")

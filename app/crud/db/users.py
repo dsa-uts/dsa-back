@@ -42,18 +42,24 @@ def exist_user(db: Session, username: str) -> bool:
 async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)], db: Session = Depends(get_db)
 ) -> UserBase:
+    GUEST = UserBase(
+        id=-1,
+        username="guest",
+        is_admin=False,
+        disabled=True,
+    )
     if token is None or authorize.is_valid_token(db, token) is False:
-        return constants.GUEST
+        return GUEST
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
-            return constants.GUEST
+            return GUEST
     except JWTError:
-        return constants.GUEST
+        return GUEST
     user = get_user(db, username=username)
     if user is None:
-        return constants.GUEST
+        return GUEST
     user = await update_disabled_status(db, user)
     user = UserBase(**user.__dict__)
     return user

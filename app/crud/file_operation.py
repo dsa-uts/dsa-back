@@ -4,6 +4,7 @@ import tarfile
 import py7zr
 import rarfile
 import shutil
+from fastapi import UploadFile
 
 
 def check_path_exists(file_path: str) -> bool:
@@ -22,6 +23,11 @@ def read_text_file(file_path: str) -> str:
     with open(file_path, "r") as f:
         text = f.read()
     return text
+
+
+def write_uploaded_file(file: UploadFile, dst_file_path: str) -> None:
+    with open(dst_file_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
 
 
 def mkdir(dir_path: str) -> None:
@@ -44,6 +50,16 @@ def copy_directory(src_dir: str, dst_dir: str) -> None:
     dst_dirが既に存在する場合は，その中身を上書きする．
     """
     shutil.copytree(src_dir, dst_dir, dirs_exist_ok=True)
+
+
+def delete_file(file_path: str) -> None:
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
+
+def delete_dir(dir_path: str) -> None:
+    if os.path.exists(dir_path):
+        shutil.rmtree(dir_path)
 
 
 # --- 解凍処理を行う関数 ---

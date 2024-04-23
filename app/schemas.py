@@ -1,32 +1,78 @@
 from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Optional, Union, Dict, Any
+from . import models
+import os
+from .crud import file_operation
+from . import constants
 
 
 class SubAssignmentBase(BaseModel):
     id: int
     sub_id: int
     title: str
+    test_dir_name: str
 
 
 class SubAssignmentDetail(SubAssignmentBase):
     makefile: str
     required_file_name: str
-    test_file_name: str
-    test_input: Optional[str] = None
+    main_file_name: str
+    test_case_name: str
+    test_input: Optional[str] = None  # 現状使わないかも．
     test_output: Optional[str] = None
     test_program: Optional[str] = None
+
+    def __init__(self, sub_assignment: models.SubAssignment):
+        super().__init__(
+            id=sub_assignment.id,
+            sub_id=sub_assignment.sub_id,
+            title=sub_assignment.title,
+            test_dir_name=sub_assignment.test_dir_name,
+            makefile=sub_assignment.makefile,
+            required_file_name=sub_assignment.required_file_name,
+            main_file_name=sub_assignment.main_file_name,
+            test_case_name=sub_assignment.test_case_name,
+        )
+
+    def set_test_program(self, assignment_title: str) -> str:
+        combined_path = os.path.join(
+            constants.TEST_PROGRAM_DIR_PATH,
+            assignment_title,
+            self.test_dir_name,
+            self.main_file_name,
+        )
+        if file_operation.check_path_exists(combined_path):
+            with open(combined_path, "r") as f:
+                self.test_program = f.read()
+        else:
+            self.test_program = ""
+        return self.test_program
+
+    def set_test_output(self, assignment_title: str) -> str:
+        combined_path = os.path.join(
+            constants.TEST_CASE_DIR_PATH,
+            assignment_title,
+            self.test_dir_name,
+            "out",
+            self.test_case_name,
+        )
+        if file_operation.check_path_exists(combined_path):
+            with open(combined_path, "r") as f:
+                self.test_output = f.read()
+        else:
+            self.test_output = ""
+        return self.test_output
 
 
 class SubAssignment(SubAssignmentBase):
     makefile: str
     required_file_name: str
-    test_file_name: str
+    main_file_name: str
     test_input_dir: Optional[str] = None
     test_output_dir: Optional[str] = None
     test_program_dir: Optional[str] = None
     test_case_name: Optional[str] = None
-    test_program_name: Optional[str] = None
 
     class Config:
         orm_mode = True
@@ -35,6 +81,7 @@ class SubAssignment(SubAssignmentBase):
 class AssignmentBase(BaseModel):
     id: int
     title: str
+    test_dir_name: str
     start_date: datetime
     end_date: datetime
 

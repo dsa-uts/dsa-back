@@ -8,19 +8,9 @@ from datetime import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from ...models import Base
-import os
+from app import constants
 
-DATABASE_USER = os.getenv("DATABASE_USER")
-DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
-DATABASE_HOST = os.getenv("DATABASE_HOST")
-DATABASE_NAME = os.getenv("DATABASE_NAME")
-
-ADMIN_USER = os.getenv("INIT_ADMIN_USER")
-ADMIN_PASSWORD = os.getenv("INIT_ADMIN_PASSWORD")
-ADMIN_START_DATE = os.getenv("INIT_ADMIN_START_DATE")
-ADMIN_END_DATE = os.getenv("INIT_ADMIN_END_DATE")
-
-DATABASE_URL = f"mysql+pymysql://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}/{DATABASE_NAME}"
+DATABASE_URL = f"mysql+pymysql://{constants.DATABASE_USER}:{constants.DATABASE_PASSWORD}@{constants.DATABASE_HOST}/{constants.DATABASE_NAME}"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -37,13 +27,13 @@ def init_db():
         create_user(
             db=db,
             user=UserCreate(
-                username=ADMIN_USER,
-                password=ADMIN_PASSWORD,
+                username=constants.ADMIN_USER,
+                password=constants.ADMIN_PASSWORD,
                 is_admin=True,
                 disabled=False,
                 created_at=datetime.now(),
-                active_start_date=datetime.fromisoformat(ADMIN_START_DATE),
-                active_end_date=datetime.fromisoformat(ADMIN_END_DATE),
+                active_start_date=datetime.fromisoformat(constants.ADMIN_START_DATE),
+                active_end_date=datetime.fromisoformat(constants.ADMIN_END_DATE),
             ),
         )
     except Exception as e:
