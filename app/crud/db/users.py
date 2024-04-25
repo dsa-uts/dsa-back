@@ -1,8 +1,9 @@
+from ...classes import schemas
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from ... import models, schemas
-from ...models import User
-from ...schemas import UserInDB, UserBase
+from ...classes import models
+from ...classes.models import User
+from ...classes.schemas import UserInDB, UserBase
 from fastapi import HTTPException, Depends, status
 from typing import Annotated, List
 from ...api.api_v1.dependencies import oauth2_scheme

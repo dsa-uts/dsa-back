@@ -3,8 +3,12 @@ from datetime import datetime
 from typing import List, Optional, Union, Dict, Any
 from . import models
 import os
-from .crud import file_operation
-from . import constants
+from ..crud import file_operation
+from .. import constants
+from fastapi import UploadFile
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 
 class SubAssignmentBase(BaseModel):
@@ -42,11 +46,13 @@ class SubAssignmentDetail(SubAssignmentBase):
             self.test_dir_name,
             self.main_file_name,
         )
+        logging.info(f"combined_path: {combined_path}")
         if file_operation.check_path_exists(combined_path):
             with open(combined_path, "r") as f:
                 self.test_program = f.read()
         else:
             self.test_program = ""
+        logging.info(f"test_program: {self.test_program}")
         return self.test_program
 
     def set_test_output(self, assignment_title: str) -> str:
@@ -168,3 +174,31 @@ class ProgressMessage(BaseModel):
     message: str
     progress_percentage: int
     result: Optional[Dict[str, Any]] = None
+
+
+class FunctionTest(BaseModel):
+    id: int
+    sub_id: int
+    func_id: int
+    func_name: str
+    exec_command: str
+
+    class Config:
+        orm_mode = True
+
+
+class File:
+    file_path: str
+    filename: str
+
+    def __init__(self, file_path: str, upload_file: Optional[UploadFile] = None):
+        if file_operation.is_dir(file_path):
+            raise ValueError("file_path should be a file path, not a directory path")
+        self.file_path = file_path
+        if upload_file is not None:
+            if os.path.basename(file_path) != upload_file.filename:
+                raise ValueError("file_path and upload_file.filename must be the same")
+            file_operation.write_uploaded_file(upload_file, self.file_path)
+            self.filename = upload_file.filename
+        else:
+            self.filename = os.path.basename(file_path)

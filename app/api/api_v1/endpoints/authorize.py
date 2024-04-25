@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from ..dependencies import oauth2_scheme, ACCESS_TOKEN_EXPIRE_MINUTES
 from sqlalchemy.orm import Session
-from ....schemas import UserBase, Token
+from ....classes.schemas import UserBase, Token
 from ....crud.db import authorize, utils, users
 from ....dependencies import get_db
 from typing import Annotated
@@ -22,7 +22,6 @@ async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Session = Depends(get_db),
 ) -> Token:
-    logging.info(f"form_data: {form_data}")
     user = users.authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
@@ -40,7 +39,6 @@ async def login_for_access_token(
     login_time = datetime.now(tokyo_tz).strftime("%Y-%m-%d %H:%M:%S")
     user_id = user.id
     is_admin = user.is_admin
-    logging.info(f"username: {user.username}, user_id: {user_id}, is_admin: {is_admin}")
     return Token(
         access_token=access_token,
         token_type="bearer",

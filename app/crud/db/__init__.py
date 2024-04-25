@@ -1,13 +1,12 @@
 import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.models import Base
-from app.schemas import UserCreate
+from ...classes.schemas import UserCreate
 from app.crud.db.authorize import get_password_hash
 from datetime import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from ...models import Base
+from ...classes.models import Base
 from app import constants
 
 DATABASE_URL = f"mysql+pymysql://{constants.DATABASE_USER}:{constants.DATABASE_PASSWORD}@{constants.DATABASE_HOST}/{constants.DATABASE_NAME}"

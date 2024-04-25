@@ -15,7 +15,8 @@ ADMIN_START_DATE = os.getenv("INIT_ADMIN_START_DATE")
 ADMIN_END_DATE = os.getenv("INIT_ADMIN_END_DATE")
 
 # --- パス関連 ---
-UPLOAD_DIR = os.getenv("UPLOAD_DIR_PATH", "/app/uploadedFile")
+TEMP_UPLOAD_DIR = os.getenv("TEMP_UPLOAD_DIR_PATH", "/app/temp_upload")
+UPLOAD_DIR = os.getenv("UPLOAD_DIR_PATH", "/app/uploaded_file")
 
 TEST_CASE_DIR_PATH = os.getenv("TEST_CASE_DIR_PATH", "/app/dsa_test_case")
 TEST_PROGRAM_DIR_PATH = os.getenv("TEST_PROGRAM_DIR_PATH", "/app/dsa_test_program")

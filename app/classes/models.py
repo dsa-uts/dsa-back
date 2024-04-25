@@ -55,3 +55,12 @@ class AuthCode(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     user = relationship("User", back_populates="auth_codes")
+
+
+class FunctionTest(Base):
+    __tablename__ = "function_test"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sub_id = Column(Integer, primary_key=True)
+    func_id = Column(Integer, primary_key=True)
+    func_name = Column(String(255), nullable=False)
+    exec_command = Column(String(255), nullable=True)

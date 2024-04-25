@@ -1,5 +1,6 @@
+from ...classes import schemas
 from sqlalchemy.orm import Session
-from ... import models, schemas
+from ...classes import models
 from typing import List
 
 
@@ -27,6 +28,21 @@ def get_sub_assignment(db: Session, id: int, sub_id: int) -> models.SubAssignmen
         .filter(models.SubAssignment.id == id)
         .filter(models.SubAssignment.sub_id == sub_id)
         .first()
+    )
+
+
+def get_function_tests_by_id(db: Session, id: int) -> List[models.FunctionTest]:
+    return db.query(models.FunctionTest).filter(models.FunctionTest.id == id).all()
+
+
+def get_function_tests_by_sub_id(
+    db: Session, id: int, sub_id: int
+) -> List[models.FunctionTest]:
+    return (
+        db.query(models.FunctionTest)
+        .filter(models.FunctionTest.id == id)
+        .filter(models.FunctionTest.sub_id == sub_id)
+        .all()
     )
 
 

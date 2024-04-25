@@ -4,8 +4,8 @@ from ....crud import file_operation
 from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy.orm import Session
 from ....dependencies import get_db
-from .... import schemas
-from .... import models
+from ....classes import schemas
+from ....classes import models
 from typing import List, Optional
 from datetime import datetime
 from pytz import timezone
@@ -15,11 +15,10 @@ import os
 import logging
 import asyncio
 import uuid
-import shutil
 import json
 import asyncio
 from .... import constants as constant
-from .... import submission_class
+from ....classes import submission_class
 
 logging.basicConfig(level=logging.INFO)
 
@@ -74,7 +73,6 @@ def read_sub_assignment(
     detail = schemas.SubAssignmentDetail(sub_assignment=sub_assignment)
     detail.set_test_program(assignment_title)
     detail.set_test_output(assignment_title)
-    logging.info(f"detail: {detail}")
     return detail
 
 
@@ -83,21 +81,41 @@ def read_sub_assignment(
 # その場合makefile等がそのまま使えるはず．uuid + filenameの場合はスペースでsplitして使う(?)
 @router.post("/upload/{id}/{sub_id}")
 async def upload_file(
-    id: int, sub_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)
+    id: int,
+    sub_id: int,
+    upload_file: UploadFile = File(...),
+    db: Session = Depends(get_db),
 ):
     unique_id = str(uuid.uuid4())  # UUIDを文字列に変換
     sub_assignment = assignments.get_sub_assignment(db, id, sub_id)
     try:
-        submission = submission_class.FormatCheckClass(
-            sub_assignment, [unique_id], file
+        function_tests = assignments.get_function_tests_by_sub_id(
+            db, sub_assignment.id, sub_assignment.sub_id
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Function test not found: {e}")
+    try:
+        # 一時的なアップロードディレクトリパスを生成
         try:
-            # __init__メソッド後の処理
-            logging.info(f"submission: {submission.root_dir_path}")
-            logging.info(f"submisson: {submission.id}, {submission.unique_id}")
+            temp_upload_path = os.path.join(constant.TEMP_UPLOAD_DIR, unique_id)
+            file_operation.mkdir(temp_upload_path)
+            # ファイルを一時ディレクトリに保存
+            temp_file_path = os.path.join(temp_upload_path, upload_file.filename)
+            file: schemas.File = schemas.File(
+                file_path=temp_file_path, upload_file=upload_file
+            )
         except Exception as e:
-            logging.error(f"An error occurred: {e}")
-        submission.build_docker_mount_directory()
+            logging.error(f"File save failed: {e}")
+        try:
+            submission = submission_class.FormatCheckClass(
+                [sub_assignment], unique_id, [unique_id], file
+            )
+        except Exception as e:
+            logging.error(f"Submission class failed: {e}")
+        try:
+            submission.build_docker_mount_directory(function_tests)
+        except Exception as e:
+            logging.error(f"Build docker mount directory failed: {e}")
         return {"unique_id": unique_id, "filename": file.filename, "result": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File upload failed: {e}")

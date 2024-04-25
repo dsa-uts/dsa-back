@@ -7,7 +7,7 @@ from typing import Union
 from datetime import datetime, timedelta
 from jose import jwt
 from sqlalchemy.orm import Session
-from ...models import AuthCode
+from ...classes.models import AuthCode
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 import pytz

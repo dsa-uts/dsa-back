@@ -1,5 +1,5 @@
 from typing import List
-from ... import models
+from ...classes import models
 from datetime import datetime
 from typing import List
 import pytz
@@ -11,7 +11,7 @@ from ...dependencies import get_db
 from fastapi import Depends
 import os
 import logging
-from ... import schemas
+from ...classes import schemas
 
 logging.basicConfig(level=logging.INFO)
 
@@ -65,6 +65,5 @@ def validate_assignment(id: int, is_admin: bool = False, db: Session = Depends(g
         is_active = is_active_assignment(
             assignment, datetime.now(timezone("Asia/Tokyo"))
         )
-        logging.info(f"is_admin: {is_admin}, is_active: {is_active}")
         if not is_active:
             raise HTTPException(status_code=404, detail="Assignment not active")
