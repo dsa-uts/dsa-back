@@ -4,7 +4,8 @@ from ....crud import file_operation
 from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy.orm import Session
 from ....dependencies import get_db
-from .... import schemas
+from ....classes import schemas
+from ....classes import models
 from typing import List, Optional
 from datetime import datetime
 from pytz import timezone
@@ -14,9 +15,10 @@ import os
 import logging
 import asyncio
 import uuid
-import shutil
 import json
 import asyncio
+from .... import constants as constant
+from ....classes import submission_class
 
 logging.basicConfig(level=logging.INFO)
 
@@ -64,26 +66,13 @@ def read_sub_assignment(
         utils.validate_assignment(id, False, db)
     else:
         utils.validate_assignment(id, True, db)
-    sub_assignment = assignments.get_sub_assignment(db, id=id, sub_id=sub_id)
-    detail = schemas.SubAssignmentDetail(
-        id=sub_assignment.id,
-        sub_id=sub_assignment.sub_id,
-        title=sub_assignment.title,
-        makefile=sub_assignment.makefile,
-        required_file_name=sub_assignment.required_file_name,
-        test_file_name=sub_assignment.test_file_name,
-        test_input=sub_assignment.test_input_dir,
+    sub_assignment: models.SubAssignment = assignments.get_sub_assignment(
+        db, id=id, sub_id=sub_id
     )
-    if file_operation.check_path_exists(sub_assignment.test_output_dir):
-        combined_path = os.path.join(
-            sub_assignment.test_output_dir, sub_assignment.test_case_name
-        )
-        detail.test_output = file_operation.read_text_file(combined_path)
-    if file_operation.check_path_exists(sub_assignment.test_program_dir):
-        combined_path = os.path.join(
-            sub_assignment.test_program_dir, sub_assignment.test_program_name
-        )
-        detail.test_program = file_operation.read_text_file(combined_path)
+    assignment_title = assignments.get_assignment(db, id).test_dir_name
+    detail = schemas.SubAssignmentDetail(sub_assignment=sub_assignment)
+    detail.set_test_program(assignment_title)
+    detail.set_test_output(assignment_title)
     return detail
 
 
@@ -91,15 +80,43 @@ def read_sub_assignment(
 # uuid + filenameにしてるけど，uuidをディレクトリ名にしてその下に普通にfilenameを配置するのでも良いかも．
 # その場合makefile等がそのまま使えるはず．uuid + filenameの場合はスペースでsplitして使う(?)
 @router.post("/upload/{id}/{sub_id}")
-async def upload_file(id: int, sub_id: int, file: UploadFile = File(...)):
-    upload_dir = "uploadedFiles"
-    unique_filename = f"{uuid.uuid4()}_{file.filename}"
-    file_path = os.path.join(upload_dir, unique_filename)
+async def upload_file(
+    id: int,
+    sub_id: int,
+    upload_file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    unique_id = str(uuid.uuid4())  # UUIDを文字列に変換
+    sub_assignment = assignments.get_sub_assignment(db, id, sub_id)
     try:
-        os.makedirs(upload_dir, exist_ok=True)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        return {"filename": unique_filename, "result": "success"}
+        function_tests = assignments.get_function_tests_by_sub_id(
+            db, sub_assignment.id, sub_assignment.sub_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Function test not found: {e}")
+    try:
+        # 一時的なアップロードディレクトリパスを生成
+        try:
+            temp_upload_path = os.path.join(constant.TEMP_UPLOAD_DIR, unique_id)
+            file_operation.mkdir(temp_upload_path)
+            # ファイルを一時ディレクトリに保存
+            temp_file_path = os.path.join(temp_upload_path, upload_file.filename)
+            file: schemas.File = schemas.File(
+                file_path=temp_file_path, upload_file=upload_file
+            )
+        except Exception as e:
+            logging.error(f"File save failed: {e}")
+        try:
+            submission = submission_class.FormatCheckClass(
+                [sub_assignment], unique_id, [unique_id], file
+            )
+        except Exception as e:
+            logging.error(f"Submission class failed: {e}")
+        try:
+            submission.build_docker_mount_directory(function_tests)
+        except Exception as e:
+            logging.error(f"Build docker mount directory failed: {e}")
+        return {"unique_id": unique_id, "filename": file.filename, "result": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File upload failed: {e}")
 
@@ -115,6 +132,7 @@ async def process_progress_ws(websocket: WebSocket, id: int, sub_id: int):
     data = await websocket.receive_text()
     data_dict = json.loads(data)
     filename = data_dict["filename"]
+    unique_id = data_dict["unique_id"]
     # 本来はdockerから進捗を受け取る処理を記述
     # コンパイルすべきファイルが複数ある場合や，実行するファイルが複数ある場合は，(1/n)のように返しても良いかも．
     # 例えば，「コンパイル中(1/3)」

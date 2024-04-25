@@ -37,5 +37,8 @@ COPY . .
 # 依存関係のインストール
 RUN pip3 install --no-cache-dir -r requirements.txt
 
+# treeコマンドのインストール
+RUN apt-get update && apt-get install -y tree
+
 # アプリケーションを起動
 CMD ["dockerize", "-wait", "tcp://db:3306", "-timeout", "30s", "uvicorn", "app:app", "--host", "0.0.0.0", "--reload"]

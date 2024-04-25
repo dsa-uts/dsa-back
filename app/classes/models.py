@@ -9,6 +9,7 @@ class Assignment(Base):
     __tablename__ = "assignments"
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(255), nullable=False)
+    test_dir_name = Column(String(255), nullable=False)
     start_date = Column(DateTime, nullable=False)
     end_date = Column(DateTime, nullable=False)
     sub_assignments = relationship("SubAssignment", back_populates="assignment")
@@ -19,14 +20,11 @@ class SubAssignment(Base):
     id = Column(Integer, ForeignKey("assignments.id"), primary_key=True)
     sub_id = Column(Integer, primary_key=True)
     title = Column(String(255), nullable=False)
+    test_dir_name = Column(String(255), nullable=False)
     makefile = Column(String(255), nullable=False)
     required_file_name = Column(String(255), nullable=False)
-    test_file_name = Column(String(255), nullable=False)
-    test_input_dir = Column(String, nullable=True)
-    test_output_dir = Column(String, nullable=True)
-    test_program_dir = Column(String, nullable=True)
-    test_case_name = Column(String, nullable=True)
-    test_program_name = Column(String, nullable=True)
+    main_file_name = Column(String(255), nullable=False)
+    test_case_name = Column(String(255), nullable=True)
     assignment = relationship("Assignment", back_populates="sub_assignments")
 
 
@@ -57,3 +55,12 @@ class AuthCode(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     user = relationship("User", back_populates="auth_codes")
+
+
+class FunctionTest(Base):
+    __tablename__ = "function_test"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sub_id = Column(Integer, primary_key=True)
+    func_id = Column(Integer, primary_key=True)
+    func_name = Column(String(255), nullable=False)
+    exec_command = Column(String(255), nullable=True)

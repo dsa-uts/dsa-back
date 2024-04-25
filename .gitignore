@@ -2,5 +2,5 @@ __pycache__
 dsa_test_case/*
 dsa_test_program/*
 .env
-uploadedFile/*
-uploadedFiles/*
+uploaded_file
+temp_upload
