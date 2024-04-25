@@ -1,4 +1,6 @@
 from ....crud.db import assignments, utils, users
+from ....crud.utils import send_heartbeat
+from ....crud import file_operation
 from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy.orm import Session
 from ....dependencies import get_db
@@ -14,6 +16,7 @@ import asyncio
 import uuid
 import shutil
 import json
+import asyncio
 
 logging.basicConfig(level=logging.INFO)
 
@@ -71,16 +74,16 @@ def read_sub_assignment(
         test_file_name=sub_assignment.test_file_name,
         test_input=sub_assignment.test_input_dir,
     )
-    if utils.check_path_exists(sub_assignment.test_output_dir):
+    if file_operation.check_path_exists(sub_assignment.test_output_dir):
         combined_path = os.path.join(
             sub_assignment.test_output_dir, sub_assignment.test_case_name
         )
-        detail.test_output = utils.read_text_file(combined_path)
-    if utils.check_path_exists(sub_assignment.test_program_dir):
+        detail.test_output = file_operation.read_text_file(combined_path)
+    if file_operation.check_path_exists(sub_assignment.test_program_dir):
         combined_path = os.path.join(
             sub_assignment.test_program_dir, sub_assignment.test_program_name
         )
-        detail.test_program = utils.read_text_file(combined_path)
+        detail.test_program = file_operation.read_text_file(combined_path)
     return detail
 
 
@@ -106,6 +109,8 @@ async def upload_file(id: int, sub_id: int, file: UploadFile = File(...)):
 async def process_progress_ws(websocket: WebSocket, id: int, sub_id: int):
     await websocket.accept()
 
+    # ハートビート送信のタスク開始
+    asyncio.create_task(send_heartbeat(websocket))
     # filenameを受け取る．uuidがあるためどのファイルかを識別できる．
     data = await websocket.receive_text()
     data_dict = json.loads(data)
