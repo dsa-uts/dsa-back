@@ -19,7 +19,6 @@ def is_dir(dir_path: str) -> bool:
 def is_file(file_path: str) -> bool:
     return check_path_exists(file_path) and os.path.isfile(file_path)
 
-
 def read_text_file(file_path: str) -> str:
     with open(file_path, "r") as f:
         text = f.read()
@@ -133,6 +132,7 @@ def extract_compressed_file(file_path: str, extract_to: str) -> List[str]:
         return un7z_file(file_path, extract_to)
     elif file_path.endswith(".rar"):
         return unrar_file(file_path, extract_to)
+
     else:
         # 圧縮されていないファイルの場合、何もしないか、ユーザーに通知する
         print(
