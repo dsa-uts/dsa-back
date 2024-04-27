@@ -40,13 +40,14 @@ class User(Base):
     active_start_date = Column(DateTime, nullable=True)
     active_end_date = Column(DateTime, nullable=True)
 
-    auth_codes = relationship("AuthCode", back_populates="user")
+    auth_codes = relationship("AccessToken", back_populates="user")
+    refresh_tokens = relationship("RefreshToken", back_populates="user")
 
     class Config:
         orm_mode = True
 
 
-class AuthCode(Base):
+class AccessToken(Base):
     __tablename__ = "auth_codes"
     id = Column(Integer, primary_key=True, autoincrement=True)
     code = Column(String(255), nullable=False)
@@ -55,6 +56,17 @@ class AuthCode(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     user = relationship("User", back_populates="auth_codes")
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    token = Column(String(255), nullable=False)
+    expired_at = Column(DateTime, nullable=False)
+    is_expired = Column(Boolean, default=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    user = relationship("User", back_populates="refresh_tokens")
 
 
 class FunctionTest(Base):

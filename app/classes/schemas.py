@@ -148,6 +148,7 @@ class UserInDB(User):
 
 class Token(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str
     login_time: datetime
     user_id: int
@@ -158,9 +159,20 @@ class TokenData(BaseModel):
     username: Union[str, None] = None
 
 
-class AuthCode(BaseModel):
+class AccessToken(BaseModel):
     id: int
     code: str
+    expired_at: datetime
+    is_expired: bool
+    user_id: Optional[int] = None
+
+    class Config:
+        orm_mode = True
+
+
+class RefreshToken(BaseModel):
+    id: int
+    token: str
     expired_at: datetime
     is_expired: bool
     user_id: Optional[int] = None

@@ -18,7 +18,7 @@ async def create_user(
     current_user: User = Depends(users.get_current_user),
 ):
     if not current_user.is_admin or current_user.disabled:
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(status_code=401, detail="Unauthorized")
     try:
         return users.create_user(db=db, user=user)
     except HTTPException as e:
@@ -31,7 +31,7 @@ async def get_users_list(
     current_user: Optional[User] = Depends(users.get_current_user),
 ):
     if current_user is None or not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     return users.get_users(db=db)
 
