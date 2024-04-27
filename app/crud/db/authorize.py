@@ -12,6 +12,9 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 import pytz
 from fastapi import HTTPException
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 tokyo_tz = pytz.timezone("Asia/Tokyo")
 
@@ -41,7 +44,7 @@ def verify_refresh_token(db: Session, token: str) -> Optional[Tuple[int, str]]:
         auth_token = (
             db.query(RefreshToken)
             .filter(
-                RefreshToken.code == token,
+                RefreshToken.token == token,
                 RefreshToken.user_id == user_id,
                 RefreshToken.is_expired == False,
             )
@@ -144,11 +147,13 @@ def invalidate_refresh_token(db: Session, token: str):
     decoded_jwt = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     user_id = decoded_jwt.get("user_id")
     if user_id:
+        logging.info(f"Invalidating refresh token for user_id: {user_id}")
         auth_code = (
             db.query(RefreshToken)
-            .filter(RefreshToken.user_id == user_id, RefreshToken.code == token)
+            .filter(RefreshToken.user_id == user_id, RefreshToken.token == token)
             .all()
         )
+        logging.info(f"auth_code: {auth_code}")
         for code in auth_code:
             code.is_expired = True
         db.commit()

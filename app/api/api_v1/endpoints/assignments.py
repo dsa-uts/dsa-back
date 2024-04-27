@@ -28,7 +28,7 @@ router = APIRouter()
 @router.get("/", response_model=List[schemas.AssignmentBase])
 def read_assignments(
     skip: int = 0,
-    limit: int = 10,
+    limit: int = 100,
     db: Session = Depends(get_db),
     user: Optional[schemas.UserBase] = Depends(users.get_current_user),
 ) -> List[schemas.AssignmentBase]:

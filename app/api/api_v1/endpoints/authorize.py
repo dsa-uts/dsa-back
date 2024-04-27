@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, Cookie, status
 from ..dependencies import (
     oauth2_scheme,
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -34,7 +34,7 @@ async def login_for_access_token(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=0.1)  # ACCESS_TOKEN_EXPIRE_MINUTES)
     refresh_token_expires = timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
     access_token = authorize.create_access_token(
         data={"sub": user.username, "user_id": user.id},
@@ -51,7 +51,7 @@ async def login_for_access_token(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=True,
+        secure=False,  # ローカルの場合のみFalse
         samesite="Strict",
     )
     tokyo_tz = pytz.timezone("Asia/Tokyo")
@@ -60,7 +60,6 @@ async def login_for_access_token(
     is_admin = user.is_admin
     return Token(
         access_token=access_token,
-        refresh_token=refresh_token,
         token_type="bearer",
         login_time=login_time,
         user_id=user_id,
@@ -72,23 +71,40 @@ async def login_for_access_token(
 async def refresh_token(
     response: Response,
     db: Session = Depends(get_db),
-    refresh_token: str = Depends(oauth2_scheme),
+    refresh_token: Optional[str] = Cookie(None),
 ) -> Token:
-    result = authorize.verify_refresh_token(db, refresh_token)
+    logging.info(f"refresh_token: {refresh_token}")
+    try:
+        result = authorize.verify_refresh_token(db, refresh_token)
+    except Exception as e:
+        logging.error(f"verify_refresh_token: {e}")
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
     if not result:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     user_id, username = result
-
-    new_access_token = authorize.create_access_token(
-        data={"sub": username, "user_id": user_id},
-        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
-        db=db,
+    try:
+        new_access_token = authorize.create_access_token(
+            data={"sub": username, "user_id": user_id},
+            expires_delta=timedelta(minutes=0.1),  # ACCESS_TOKEN_EXPIRE_MINUTES),
+            db=db,
+        )
+    except Exception as e:
+        logging.error(f"create_access_token: {e}")
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    tokyo_tz = pytz.timezone("Asia/Tokyo")
+    renewal_time = datetime.now(tokyo_tz).strftime("%Y-%m-%d %H:%M:%S")
+    return Token(
+        access_token=new_access_token,
+        token_type="bearer",
+        login_time=renewal_time,
+        user_id=user_id,
+        is_admin=False,
     )
-    return {"access_token": new_access_token, "token_type": "bearer"}
 
 
 @router.post("/logout")
 async def logout(
+    response: Response,
     db: Session = Depends(get_db),
     token: str = Depends(oauth2_scheme),
 ):
@@ -99,6 +115,9 @@ async def logout(
     try:
         authorize.invalidate_token(db, token)
         authorize.invalidate_refresh_token(db, token)
+        response.delete_cookie(
+            key="refresh_token", httponly=True, secure=False, samesite="Strict"
+        )
         return {"msg": "ログアウトに成功しました。"}
     except Exception as e:
         raise HTTPException(

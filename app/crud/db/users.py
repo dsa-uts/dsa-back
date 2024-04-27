@@ -49,15 +49,21 @@ async def get_current_user(
         is_admin=False,
         disabled=True,
     )
-    if token is None or authorize.is_valid_token(db, token) is False:
+    if token is None:
         return GUEST
     try:
+        logging.info(f"Token: {token}")
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             return GUEST
     except JWTError:
-        return GUEST
+        authorize.is_valid_token(db, token)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired or invalid",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     user = get_user(db, username=username)
     if user is None:
         return GUEST
