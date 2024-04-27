@@ -69,7 +69,7 @@ async def login_for_access_token(
 
 
 @router.post("/refresh")
-async def refresh_access_token(
+async def refresh_token(
     response: Response,
     db: Session = Depends(get_db),
     refresh_token: str = Depends(oauth2_scheme),
