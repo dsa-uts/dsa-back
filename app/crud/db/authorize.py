@@ -128,34 +128,40 @@ def create_refresh_token(
 
 
 def invalidate_token(db: Session, token: str):
-    decoded_jwt = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    user_id = decoded_jwt.get("user_id")
-    if user_id:
-        auth_code = (
-            db.query(AccessToken)
-            .filter(AccessToken.user_id == user_id, AccessToken.code == token)
-            .all()
-        )
-        for code in auth_code:
-            code.is_expired = True
-        db.commit()
-        return True
-    return False
+    try:
+        decoded_jwt = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = decoded_jwt.get("user_id")
+        if user_id:
+            auth_code = (
+                db.query(AccessToken)
+                .filter(AccessToken.user_id == user_id, AccessToken.code == token)
+                .all()
+            )
+            for code in auth_code:
+                code.is_expired = True
+            db.commit()
+            return True
+    except JWTError as e:
+        logging.error(f"JWTError in invalidate_token: {e}")
+        return False
 
 
 def invalidate_refresh_token(db: Session, token: str):
-    decoded_jwt = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    user_id = decoded_jwt.get("user_id")
-    if user_id:
-        logging.info(f"Invalidating refresh token for user_id: {user_id}")
-        auth_code = (
-            db.query(RefreshToken)
-            .filter(RefreshToken.user_id == user_id, RefreshToken.token == token)
-            .all()
-        )
-        logging.info(f"auth_code: {auth_code}")
-        for code in auth_code:
-            code.is_expired = True
-        db.commit()
-        return True
-    return False
+    try:
+        decoded_jwt = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = decoded_jwt.get("user_id")
+        if user_id:
+            logging.info(f"Invalidating refresh token for user_id: {user_id}")
+            auth_code = (
+                db.query(RefreshToken)
+                .filter(RefreshToken.user_id == user_id, RefreshToken.token == token)
+                .all()
+            )
+            logging.info(f"auth_code: {auth_code}")
+            for code in auth_code:
+                code.is_expired = True
+            db.commit()
+            return True
+    except JWTError as e:
+        logging.error(f"JWTError in invalidate_refresh_token: {e}")
+        return False
