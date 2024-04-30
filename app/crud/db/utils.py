@@ -67,3 +67,18 @@ def validate_assignment(id: int, is_admin: bool = False, db: Session = Depends(g
         )
         if not is_active:
             raise HTTPException(status_code=404, detail="Assignment not active")
+
+
+def validate_sub_assignment(
+    id: int, sub_id: int, is_admin: bool = False, db: Session = Depends(get_db)
+):
+    sub_assignment = assignments.get_sub_assignment(db, id=id, sub_id=sub_id)
+    if sub_assignment is None:
+        logging.error(f"SubAssignment not found: {id}, {sub_id}")
+        raise HTTPException(status_code=404, detail="SubAssignment not found")
+    if not is_admin:
+        is_active = is_active_assignment(
+            sub_assignment.assignment, datetime.now(timezone("Asia/Tokyo"))
+        )
+        if not is_active:
+            raise HTTPException(status_code=404, detail="SubAssignment not active")

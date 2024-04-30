@@ -213,3 +213,11 @@ class File:
             self.filename = upload_file.filename
         else:
             self.filename = os.path.basename(file_path)
+
+
+class MakefileUpdate(BaseModel):
+    makefile: str
+
+
+class ExpectedOutputUpdate(BaseModel):
+    expected_output: str

@@ -52,7 +52,6 @@ async def get_current_user(
     if token is None:
         return GUEST
     try:
-        logging.info(f"Token: {token}")
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:

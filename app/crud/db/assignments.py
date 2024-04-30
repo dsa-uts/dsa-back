@@ -2,6 +2,9 @@ from ...classes import schemas
 from sqlalchemy.orm import Session
 from ...classes import models
 from typing import List
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 
 # idに対応する課題を取得する関数
@@ -52,3 +55,21 @@ def create_assignment(db: Session, assignment: schemas.AssignmentCreate):
     db.commit()
     db.refresh(db_assignment)
     return db_assignment
+
+
+def update_makefile(db: Session, id: int, sub_id: int, makefile: str):
+    db_sub_assignment = (
+        db.query(models.SubAssignment)
+        .filter(models.SubAssignment.id == id)
+        .filter(models.SubAssignment.sub_id == sub_id)
+        .first()
+    )
+    db_sub_assignment.makefile = makefile
+    logging.info(f"Update makefile: {db_sub_assignment.makefile} to {makefile}")
+    try:
+        db.commit()
+        db.refresh(db_sub_assignment)
+        return db_sub_assignment
+    except Exception as e:
+        db.rollback()
+        raise e
