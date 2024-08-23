@@ -31,7 +31,9 @@ class SubAssignment(Base):
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, autoincrement=True)
+    student_id = Column(String(255), nullable=False)
     username = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False)
     hashed_password = Column(String(255), nullable=False)
     is_admin = Column(Boolean, default=False)
     disabled = Column(Boolean, default=False)
@@ -40,21 +42,33 @@ class User(Base):
     active_start_date = Column(DateTime, nullable=True)
     active_end_date = Column(DateTime, nullable=True)
 
-    auth_codes = relationship("AuthCode", back_populates="user")
+    access_tokens = relationship("AccessToken", back_populates="user")
+    refresh_tokens = relationship("RefreshToken", back_populates="user")
 
     class Config:
         orm_mode = True
 
 
-class AuthCode(Base):
-    __tablename__ = "auth_codes"
+class AccessToken(Base):
+    __tablename__ = "access_tokens"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    code = Column(String(255), nullable=False)
+    token = Column(String(255), nullable=False)
     expired_at = Column(DateTime, nullable=False)
     is_expired = Column(Boolean, default=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
-    user = relationship("User", back_populates="auth_codes")
+    user = relationship("User", back_populates="access_tokens")
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    token = Column(String(255), nullable=False)
+    expired_at = Column(DateTime, nullable=False)
+    is_expired = Column(Boolean, default=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    user = relationship("User", back_populates="refresh_tokens")
 
 
 class FunctionTest(Base):

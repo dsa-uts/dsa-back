@@ -12,7 +12,7 @@ import logging
 from .schemas import File
 import json
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 
 class SubmissionToolBaseClass:

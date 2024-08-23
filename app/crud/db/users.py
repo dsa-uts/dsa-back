@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from ...classes import models
 from ...classes.models import User
 from ...classes.schemas import UserInDB, UserBase
-from fastapi import HTTPException, Depends, status
+from fastapi import HTTPException, Depends, status, Request
 from typing import Annotated, List
 from ...api.api_v1.dependencies import oauth2_scheme
 from ...dependencies import get_db
@@ -20,11 +20,11 @@ from . import utils
 from ... import constants
 import logging
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 
-def get_user(db: Session, username: str) -> User | None:
-    user: User | None = db.query(User).filter(User.username == username).first()
+def get_user(db: Session, student_id: str) -> User | None:
+    user: User | None = db.query(User).filter(User.student_id == student_id).first()
     return user
 
 
@@ -33,34 +33,30 @@ def get_users(db: Session) -> List[User]:
     return users
 
 
-def exist_user(db: Session, username: str) -> bool:
-    user = db.query(User).filter(User.username == username).first()
+def exist_user(db: Session, student_id: str) -> bool:
+    user = db.query(User).filter(User.student_id == student_id).first()
     if user:
         return True
     return False
 
 
 async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)], db: Session = Depends(get_db)
+    token: Annotated[str, Depends(oauth2_scheme)],
+    request: Request,
+    db: Session = Depends(get_db),
 ) -> UserBase:
-    GUEST = UserBase(
-        id=-1,
-        username="guest",
-        is_admin=False,
-        disabled=True,
-    )
-    if token is None or authorize.is_valid_token(db, token) is False:
-        return GUEST
+    if token is None:
+        raise HTTPException(status_code=401, detail="Token is not provided")
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            return GUEST
-    except JWTError:
-        return GUEST
-    user = get_user(db, username=username)
+        user_id, student_id = authorize.verify_access_token(db, token)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = get_user(db, student_id=student_id)
     if user is None:
-        return GUEST
+        raise HTTPException(status_code=401, detail="User not found")
     user = await update_disabled_status(db, user)
     user = UserBase(**user.__dict__)
     return user
@@ -84,8 +80,8 @@ async def update_disabled_status(db: Session, user: User):
 
 
 # authorize.pyにおいても良いかも．
-def authenticate_user(db: Session, username: str, password: str):
-    user = get_user(db, username)
+def authenticate_user(db: Session, student_id: str, password: str):
+    user = get_user(db, student_id)
     if not user:
         return False
     if not authorize.verify_password(password, user.hashed_password):
@@ -94,13 +90,18 @@ def authenticate_user(db: Session, username: str, password: str):
 
 
 def create_user(db: Session, user: schemas.UserCreate):
-    existing_user = exist_user(db, user.username)
+    existing_user = exist_user(db, user.student_id)
     if existing_user:
-        raise HTTPException(status_code=400, detail="User already exists")
+        raise HTTPException(
+            status_code=400, detail=f"User {user.student_id} already exists"
+        )
     try:
+        logging.info(f"Creating user: {user}")
         hashed_password = authorize.get_password_hash(user.password)
         db_user = models.User(
+            student_id=user.student_id,
             username=user.username,
+            email=user.email,
             hashed_password=hashed_password,
             is_admin=user.is_admin,
             disabled=(
@@ -120,9 +121,9 @@ def create_user(db: Session, user: schemas.UserCreate):
         db.add(db_user)
         db.commit()
         db.refresh(db_user)
-        return db_user
-    except IntegrityError:
-        raise HTTPException(status_code=400, detail="User already exists")
+        return user.password
+    except IntegrityError as e:
+        raise HTTPException(status_code=400, detail=e.args[0])
 
 
 async def delete_users(db: Session, user_ids: List[int]):

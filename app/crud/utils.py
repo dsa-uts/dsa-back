@@ -1,6 +1,8 @@
 import asyncio
 import json
 from fastapi import WebSocket
+import string
+import secrets
 
 
 # websocketを使ってハートビートを送信する
@@ -13,3 +15,8 @@ async def send_heartbeat(websocket: WebSocket):
         except Exception as e:
             print(f"Error sending heartbeat: {e}")
             break  # エラーが発生した場合はループを抜ける
+
+
+def generate_password(length=10):
+    characters = string.ascii_letters + string.digits + string.punctuation
+    return "".join(secrets.choice(characters) for _ in range(length))
