@@ -8,7 +8,7 @@ from .. import constants
 from fastapi import UploadFile
 import logging
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 
 class SubAssignmentBase(BaseModel):
@@ -105,19 +105,22 @@ class Assignment(AssignmentBase):
 
 
 class UserLogin(BaseModel):
-    username: str
+    student_id: str
     password: str
 
 
 class UserBase(BaseModel):
     id: int
     username: str
+    student_id: str
     is_admin: bool
     disabled: bool
 
 
 class UserCreate(BaseModel):
+    student_id: str
     username: str
+    email: str
     password: str  # 暗号化前のパスワード
     is_admin: bool = False
     disabled: bool = False
@@ -148,7 +151,6 @@ class UserInDB(User):
 
 class Token(BaseModel):
     access_token: str
-    refresh_token: str
     token_type: str
     login_time: datetime
     user_id: int
@@ -161,7 +163,7 @@ class TokenData(BaseModel):
 
 class AccessToken(BaseModel):
     id: int
-    code: str
+    token: str
     expired_at: datetime
     is_expired: bool
     user_id: Optional[int] = None

@@ -12,6 +12,9 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 import pytz
 from fastapi import HTTPException
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
 
 tokyo_tz = pytz.timezone("Asia/Tokyo")
 
@@ -30,18 +33,77 @@ def update_token_expiration(db: Session, auth_token: RefreshToken) -> None:
     db.commit()
 
 
+def is_access_token_expired(db: Session, token: AccessToken) -> bool:
+    if tokyo_tz.localize(token.expired_at) <= datetime.now(tokyo_tz):
+        if not token.is_expired:
+            invalidate_access_token(db, token.token)
+        return True
+    return False
+
+
+def is_refresh_token_expired(db: Session, token: RefreshToken) -> bool:
+    if tokyo_tz.localize(token.expired_at) <= datetime.now(tokyo_tz):
+        if not token.is_expired:
+            invalidate_refresh_token(db, token.token)
+        return True
+    return False
+
+
+def verify_access_token(db: Session, token: str) -> Optional[Tuple[int, str]]:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: int = payload.get("user_id")
+        student_id: str = payload.get("sub")
+        if user_id is None or student_id is None:
+            return None
+        auth_token = (
+            db.query(AccessToken)
+            .filter(
+                AccessToken.token == token,
+                AccessToken.user_id == user_id,
+                AccessToken.is_expired == False,
+            )
+            .first()
+        )
+        if not auth_token:
+            raise HTTPException(
+                status_code=401, detail="No matching access token found"
+            )
+        if is_access_token_expired(db, auth_token):
+            raise HTTPException(status_code=401, detail="Token has expired")
+        return (user_id, student_id)
+    except JWTError:
+        try:
+            # トークンの期限が切れてdecodeできない場合は，トークンを無効化する
+            auth_token = (
+                db.query(AccessToken).filter(AccessToken.token == token).first()
+            )
+            if not auth_token:
+                raise HTTPException(
+                    status_code=401, detail="No matching access token found"
+                )
+            if is_access_token_expired(db, auth_token):
+                raise HTTPException(status_code=401, detail="Token has expired")
+        except HTTPException as e:
+            raise e
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def verify_refresh_token(db: Session, token: str) -> Optional[Tuple[int, str]]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: int = payload.get("user_id")
-        username: str = payload.get("sub")
-        if user_id is None or username is None:
+        student_id: str = payload.get("sub")
+        if user_id is None or student_id is None:
             return None
 
         auth_token = (
             db.query(RefreshToken)
             .filter(
-                RefreshToken.code == token,
+                RefreshToken.token == token,
                 RefreshToken.user_id == user_id,
                 RefreshToken.is_expired == False,
             )
@@ -49,17 +111,29 @@ def verify_refresh_token(db: Session, token: str) -> Optional[Tuple[int, str]]:
         )
 
         if not auth_token:
-            raise HTTPException(status_code=401, detail="No matching token found")
-        if tokyo_tz.localize(auth_token.expired_at) <= datetime.now(
-            pytz.timezone("Asia/Tokyo")
-        ):
-            if not auth_token.is_expired:
-                update_token_expiration(db, auth_token)
+            raise HTTPException(
+                status_code=401, detail=f"No matching refresh token found: {token}"
+            )
+        if is_refresh_token_expired(db, auth_token):
             raise HTTPException(status_code=401, detail="Token expired")
 
-        return (user_id, username)
+        return (user_id, student_id)
     except JWTError:
-        raise HTTPException(status_code=401, detail="Token decoding failed")
+        try:
+            # トークンの期限が切れてdecodeできない場合は，トークンを無効化する
+            auth_token = (
+                db.query(RefreshToken).filter(RefreshToken.token == token).first()
+            )
+            if not auth_token:
+                raise HTTPException(
+                    status_code=401, detail=f"No matching refresh token found: {token}"
+                )
+            if is_refresh_token_expired(db, auth_token):
+                raise HTTPException(status_code=401, detail="Token expired")
+        except HTTPException as e:
+            raise e
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -69,19 +143,6 @@ def update_token_expiration(db: Session, token: AccessToken) -> None:
     db.commit()
 
 
-def is_valid_token(db: Session, token: str) -> bool:
-    """トークンが有効かどうかを確認し、必要に応じてトークンの状態を更新する"""
-    auth_code = db.query(AccessToken).filter(AccessToken.code == token).first()
-    if auth_code is None:
-        return False
-    if auth_code.is_expired:
-        return False
-    if tokyo_tz.localize(auth_code.expired_at) < datetime.now(tokyo_tz):
-        update_token_expiration(db, auth_code)
-        return False
-    return True
-
-
 def create_access_token(
     data: dict, db: Session, expires_delta: Union[timedelta, None] = None
 ):
@@ -89,11 +150,11 @@ def create_access_token(
     if expires_delta:
         expire = datetime.now(tokyo_tz) + expires_delta
     else:
-        expire = datetime.now(tokyo_tz) + timedelta(minutes=15)
+        expire = datetime.now(tokyo_tz) + timedelta(minutes=30)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     auth_code = AccessToken(
-        code=encoded_jwt,
+        token=encoded_jwt,
         expired_at=expire,
         user_id=data["user_id"],
         is_expired=False,
@@ -124,33 +185,61 @@ def create_refresh_token(
     return encoded_jwt
 
 
-def invalidate_token(db: Session, token: str):
-    decoded_jwt = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    user_id = decoded_jwt.get("user_id")
-    if user_id:
-        auth_code = (
-            db.query(AccessToken)
-            .filter(AccessToken.user_id == user_id, AccessToken.code == token)
-            .all()
-        )
+def invalidate_access_token(db: Session, token: str):
+    try:
+        decoded_jwt = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = decoded_jwt.get("user_id")
+        if user_id:
+            auth_code = (
+                db.query(AccessToken)
+                .filter(AccessToken.user_id == user_id, AccessToken.token == token)
+                .all()
+            )
         for code in auth_code:
             code.is_expired = True
-        db.commit()
-        return True
+            db.commit()
+            return True
+    except JWTError:
+        try:
+            auth_code = db.query(AccessToken).filter(AccessToken.token == token).first()
+            if not auth_code:
+                return True
+            auth_code.is_expired = True
+            db.commit()
+            return True
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     return False
 
 
 def invalidate_refresh_token(db: Session, token: str):
-    decoded_jwt = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    user_id = decoded_jwt.get("user_id")
-    if user_id:
-        auth_code = (
-            db.query(RefreshToken)
-            .filter(RefreshToken.user_id == user_id, RefreshToken.code == token)
-            .all()
-        )
-        for code in auth_code:
-            code.is_expired = True
-        db.commit()
-        return True
+    try:
+        decoded_jwt = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = decoded_jwt.get("user_id")
+        if user_id:
+            auth_code = (
+                db.query(RefreshToken)
+                .filter(RefreshToken.user_id == user_id, RefreshToken.token == token)
+                .all()
+            )
+            for code in auth_code:
+                code.is_expired = True
+            db.commit()
+            return True
+    except JWTError:
+        try:
+            auth_code = (
+                db.query(RefreshToken).filter(RefreshToken.token == token).first()
+            )
+            if not auth_code:
+                return True
+            auth_code.is_expired = True
+            db.commit()
+            return True
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     return False

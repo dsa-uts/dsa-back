@@ -13,7 +13,7 @@ import os
 import logging
 from ...classes import schemas
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 
 def is_active_assignment(
@@ -42,7 +42,6 @@ def is_active_user(
         or current_time_tz <= user.active_end_date.astimezone(tz_info)
     )
     result = start_date_check and end_date_check or user.disabled
-    logging.info(f"User: {user.username}, is_active: {result}")
     return result
 
 

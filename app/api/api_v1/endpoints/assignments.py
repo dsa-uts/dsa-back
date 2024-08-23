@@ -20,7 +20,7 @@ import asyncio
 from .... import constants as constant
 from ....classes import submission_class
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 router = APIRouter()
 
@@ -32,8 +32,10 @@ def read_assignments(
     db: Session = Depends(get_db),
     user: Optional[schemas.UserBase] = Depends(users.get_current_user),
 ) -> List[schemas.AssignmentBase]:
+    if user is None:
+        return []
     assignments_list = assignments.get_assignments(db, skip=skip, limit=limit)
-    if user is None or user.disabled:
+    if not user.is_admin:
         current_time = datetime.now(timezone("Asia/Tokyo"))
         assignments_list = utils.filter_assignments_by_time(
             assignments_list, current_time
@@ -47,10 +49,9 @@ def read_sub_assignments(
     db: Session = Depends(get_db),
     user: Optional[schemas.UserBase] = Depends(users.get_current_user),
 ):
-    if user is None or user.disabled:
-        utils.validate_assignment(id, False, db)
-    else:
-        utils.validate_assignment(id, True, db)
+    if user is None:
+        return []
+    utils.validate_assignment(id, user.is_admin, db)
     sub_assignments_list = assignments.get_sub_assignments(db, id=id)
     return sub_assignments_list
 
@@ -62,10 +63,7 @@ def read_sub_assignment(
     db: Session = Depends(get_db),
     user: Optional[schemas.UserBase] = Depends(users.get_current_user),
 ):
-    if user is None or user.disabled:
-        utils.validate_assignment(id, False, db)
-    else:
-        utils.validate_assignment(id, True, db)
+    utils.validate_assignment(id, user.is_admin, db)
     sub_assignment: models.SubAssignment = assignments.get_sub_assignment(
         db, id=id, sub_id=sub_id
     )

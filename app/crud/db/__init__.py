@@ -15,7 +15,7 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base.metadata.create_all(bind=engine)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 
 def init_db():
@@ -26,8 +26,10 @@ def init_db():
         create_user(
             db=db,
             user=UserCreate(
+                student_id=constants.ADMIN_USER_ID,
                 username=constants.ADMIN_USER,
                 password=constants.ADMIN_PASSWORD,
+                email=constants.ADMIN_EMAIL,
                 is_admin=True,
                 disabled=False,
                 created_at=datetime.now(),
