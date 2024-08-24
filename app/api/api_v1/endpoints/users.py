@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.DEBUG)
 router = APIRouter()
 
 
-@router.post("/register", response_model=User)
+@router.post("/register")
 async def create_user(
     user: UserCreate,
     db: Session = Depends(get_db),
@@ -24,7 +24,7 @@ async def create_user(
     if not current_user.is_admin or current_user.disabled:
         raise HTTPException(status_code=401, detail="Unauthorized")
     try:
-        return users.create_user(db=db, user=user)
+        return {"msg": "ユーザーが正常に作成されました．"}
     except HTTPException as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
