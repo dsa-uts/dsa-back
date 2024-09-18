@@ -4,3 +4,4 @@ dsa_test_program/*
 .env
 uploaded_file
 temp_upload
+.venv

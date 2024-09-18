@@ -84,6 +84,8 @@ def create_app() -> FastAPI:
     return app
 
 
+# フロントエンドサーバ(オリジン: http://localhost:3000)からのアクセスを許可するための
+# CORS設定
 origins = [
     "http://localhost:3000",
 ]
