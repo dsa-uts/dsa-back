@@ -121,7 +121,7 @@ class UserCreate(BaseModel):
     student_id: str
     username: str
     email: str
-    password: str  # 暗号化前のパスワード
+    raw_password: str  # 暗号化前のパスワード
     is_admin: bool = False
     disabled: bool = False
     created_at: Optional[datetime] = None

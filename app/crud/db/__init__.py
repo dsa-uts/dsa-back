@@ -28,7 +28,7 @@ def init_db():
             user=UserCreate(
                 student_id=constants.ADMIN_USER_ID,
                 username=constants.ADMIN_USER,
-                password=constants.ADMIN_PASSWORD,
+                raw_password=constants.ADMIN_PASSWORD,
                 email=constants.ADMIN_EMAIL,
                 is_admin=True,
                 disabled=False,

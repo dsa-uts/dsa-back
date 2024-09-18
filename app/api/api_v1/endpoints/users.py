@@ -76,7 +76,7 @@ async def register_multiple_users(
             student_id=str(row["student_id"]),
             username=row["username"],
             email=row["email"],
-            password=generated_password,
+            raw_password=generated_password,
             is_admin=row["is_admin"],
             active_start_date=pd.to_datetime(row["active_start_date"]).tz_localize(
                 "Asia/Tokyo"

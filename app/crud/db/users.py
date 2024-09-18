@@ -97,7 +97,7 @@ def create_user(db: Session, user: schemas.UserCreate):
         )
     try:
         logging.info(f"Creating user: {user}")
-        hashed_password = authorize.get_password_hash(user.password)
+        hashed_password = authorize.get_password_hash(user.raw_password)
         db_user = models.User(
             student_id=user.student_id,
             username=user.username,
@@ -121,7 +121,7 @@ def create_user(db: Session, user: schemas.UserCreate):
         db.add(db_user)
         db.commit()
         db.refresh(db_user)
-        return user.password
+        return user.raw_password
     except IntegrityError as e:
         raise HTTPException(status_code=400, detail=e.args[0])
 
