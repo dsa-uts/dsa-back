@@ -114,8 +114,9 @@ class LoginHistory(Base):
     user_id = Column(
         String(255), ForeignKey("Users.user_id"), primary_key=True, nullable=False
     )
-    login_at = Column(DateTime, nullable=False)
+    login_at = Column(DateTime, nullable=False, primary_key=True)
     logout_at = Column(DateTime, default=None)
+    disabled = Column(Boolean, default=False, nullable=False)
     refresh_count = Column(Integer, default=0, nullable=False)
     current_access_token = Column(String(255), nullable=False)
     current_refresh_token = Column(String(255), nullable=False)
