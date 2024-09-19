@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from datetime import datetime
 from typing import List, Optional, Union, Dict, Any
 from enum import Enum
@@ -190,6 +190,11 @@ class JudgeResultRecord(BaseModel):
     )
     ts: datetime = Field(default_factory=lambda: datetime(1998, 6, 6, 12, 32, 41))
 
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
 
 class EvaluationSummaryRecord(BaseModel):
     submission_id: int
@@ -228,6 +233,16 @@ class SubmissionSummaryRecord(BaseModel):
     score: int
     # 以降、クライアントで必要になるフィールド
     evaluation_summary_list: list[EvaluationSummaryRecord] = Field(default_factory=list)
+
+
+class LoginHistoryRecord(BaseModel):
+    user_id: str
+    login_at: datetime
+    logout_at: datetime
+    disabled: bool
+    refresh_count: int
+    current_access_token: str = Field(max_length=511)
+    current_refresh_token: str = Field(max_length=511)
 
 
 class UserBase(BaseModel):
@@ -286,9 +301,17 @@ class JWTTokenPayload(BaseModel):
     sub: str = Field(max_length=255)
     login: datetime
     expire: datetime
-    scopes: list[str]
+    scopes: list[str] = Field(default_factory=list)
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        # JWTトークンのdict型からJWTTokenPayloadへ変換するための設定
+        "from_attributes": True
+    }
+    
+    # dict型に変換するときに、mysqlのDATETIMEフォーマットに合わせるためのシリアライズ関数
+    @field_serializer('login', 'expire')
+    def serialize_datetime_fields(self, dt: datetime, _info):
+        return dt.strftime('%Y-%m-%d %H:%M:%S')
 
 
 class AccessToken(BaseModel):

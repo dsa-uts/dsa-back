@@ -118,8 +118,8 @@ class LoginHistory(Base):
     logout_at = Column(DateTime, default=None)
     disabled = Column(Boolean, default=False, nullable=False)
     refresh_count = Column(Integer, default=0, nullable=False)
-    current_access_token = Column(String(255), nullable=False)
-    current_refresh_token = Column(String(255), nullable=False)
+    current_access_token = Column(String(511), nullable=False)
+    current_refresh_token = Column(String(511), nullable=False)
 
 
 class BatchSubmission(Base):
