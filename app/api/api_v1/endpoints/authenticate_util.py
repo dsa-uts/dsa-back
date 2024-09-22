@@ -14,12 +14,21 @@ from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
 from fastapi import HTTPException, status
 import crud.db.users as crud_users
-from fastapi import Depends
+from fastapi import Depends, Security
 from fastapi.security import SecurityScopes
 from typing import Annotated
-from dependencies import get_db
+from app.dependencies import get_db
+import string
+import secrets
 
 TOKYO_TZ = pytz.timezone("Asia/Tokyo")
+
+def generate_password(length=10):
+    """
+    ランダムなパスワードを生成する
+    """
+    characters = string.ascii_letters + string.digits + string.punctuation
+    return "".join(secrets.choice(characters) for _ in range(length))
 
 
 def get_current_time() -> datetime:
@@ -47,8 +56,9 @@ def authenticate_user(
     db: Session, username: str, plain_password: str
 ) -> schemas.UserRecord | bool:
     """
-    user_idをキーにしてユーザーを取得し、パスワードが一致するかを確認する
+    user_idをキーにしてユーザーを取得し、パスワードが一致するかを確認する。
 
+    ユーザが存在し、パスワードが一致する場合はユーザレコードを返す。
     ユーザーが存在しない場合はFalseを返す
     """
     user: schemas.UserRecord | None = crud_users.get_user(db=db, user_id=username)
@@ -148,3 +158,27 @@ async def get_current_user(
             )
     
     return user
+
+
+async def get_current_active_user(
+    current_user: Annotated[schemas.UserRecord, Security(get_current_user, scopes=["me"])],
+    db: Annotated[Session, Depends(get_db)]
+) -> schemas.UserRecord:
+    '''
+    ユーザが有効かどうかを確認する
+    
+    ユーザが無効な場合は、400エラーを返す
+    
+    この関数は、認証&認可が必要かつユーザが有効かどうかを確認するAPIのエンドポイントにInjectionされることを
+    想定している。
+    '''
+    if is_past(current_user.active_end_date):
+        crud_users.update_disabled_status(db=db, user_id=current_user.user_id, disabled=True)
+
+    if current_user.disabled:        
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inactive user"
+        )
+
+    return current_user

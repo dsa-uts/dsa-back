@@ -12,6 +12,14 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 
 
+class Message(BaseModel):
+    message: str
+    
+    model_config = {
+        "extra": "allow"
+    }
+
+
 class SubmissionProgressStatus(Enum):
     PENDING = "pending"
     QUEUED = "queued"
@@ -272,7 +280,7 @@ class UserBase(BaseModel):
     id: int
     username: str
     student_id: str
-    is_admin: bool
+    role: Role
     disabled: bool
 
 
@@ -281,12 +289,11 @@ class UserCreate(BaseModel):
     username: str
     email: str
     plain_password: str  # 暗号化前のパスワード
-    is_admin: bool = False
+    role: Role
     disabled: bool = False
-    created_at: Optional[datetime] = None
     active_start_date: Optional[datetime] = None
     active_end_date: Optional[datetime] = None
-
+    
 
 class UserDelete(BaseModel):
     user_ids: List[int]

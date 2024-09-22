@@ -97,7 +97,7 @@ class Users(Base):
     username = Column(String(255), nullable=False)
     email = Column(String(255), nullable=False)
     hashed_password = Column(String(255), nullable=False)
-    is_admin = Column(Boolean, default=False, nullable=False)
+    role = Column(Enum('admin', 'manager', 'student'), nullable=False)
     disabled = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
     updated_at = Column(
@@ -115,8 +115,7 @@ class LoginHistory(Base):
         String(255), ForeignKey("Users.user_id"), primary_key=True, nullable=False
     )
     login_at = Column(DateTime, nullable=False, primary_key=True)
-    logout_at = Column(DateTime, default=None)
-    disabled = Column(Boolean, default=False, nullable=False)
+    logout_at = Column(DateTime, nullable=False)
     refresh_count = Column(Integer, default=0, nullable=False)
     current_access_token = Column(String(511), nullable=False)
     current_refresh_token = Column(String(511), nullable=False)

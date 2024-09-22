@@ -129,7 +129,6 @@ async def register_multiple_users(
                 hashed_password=authenticate_util.get_password_hash(generated_password),
                 role=schemas.Role(row["role"]),
                 disabled=False,
-                created_at=authenticate_util.get_current_time(),
                 active_start_date=pd.to_datetime(row["active_start_date"]).tz_localize(
                     "Asia/Tokyo"
                 ),

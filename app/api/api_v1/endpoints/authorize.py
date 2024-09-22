@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
-from ..dependencies import (
-    pwd_context,
+from api.api_v1.dependencies import (
     oauth2_scheme,
     SECRET_KEY,
     ALGORITHM,
@@ -22,6 +21,12 @@ from fastapi.security import OAuth2PasswordRequestForm
 from datetime import timedelta, datetime, timezone
 import pytz
 from typing import Optional
+from api.api_v1.endpoints.authenticate_util import (
+    authenticate_user,
+    is_past,
+    decode_token,
+    get_current_time,
+)
 
 import logging
 
@@ -29,65 +34,8 @@ router = APIRouter()
 
 logging.basicConfig(level=logging.DEBUG)
 
-tokyo_tz = pytz.timezone("Asia/Tokyo")
-
 access_token_duration = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 refresh_token_duration = timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def is_past(ts: datetime) -> bool:
-    return tokyo_tz.localize(ts) <= datetime.now(tokyo_tz)
-
-
-def authenticate_user(
-    db: Session, username: str, plain_password: str
-) -> UserRecord | bool:
-    user: UserRecord | None = users.get_user(db=db, user_id=username)
-    if user is None:
-        return False
-    if not verify_password(
-        plain_password=plain_password, hashed_password=user.hashed_password
-    ):
-        return False
-    return user
-
-
-def get_password_hash(plain_password: str) -> str:
-    return pwd_context.hash(plain_password)
-
-
-def is_token_expired(payload: JWTTokenPayload) -> bool:
-    if tokyo_tz.localize(payload.expire) <= datetime.now(tokyo_tz):
-        return True
-    return False
-
-
-# JWTトークンをデコードし、ペイロードを返す
-def verify_token(token: str) -> JWTTokenPayload:
-    scope_str = ""
-    try:
-        # tokenのデコード
-        raw_token_payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        token_payload = JWTTokenPayload.model_validate(raw_token_payload)
-        scope_str = " ".join(token_payload.scopes)
-    except (InvalidTokenError, ValidationError):
-        # トークンのフォーマットが無効、または各フィールドのValidationに失敗した場合
-        # NOTE: authenticate_valueの設定については、ここまで厳密にやらなくても問題ない
-        if scope_str == "":
-            authenticate_value = "Bearer"
-        else:
-            authenticate_value = f'Bearer scope="{scope_str}"'
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": authenticate_value},
-        )
-
-    return token_payload
 
 
 """
@@ -111,7 +59,7 @@ async def login_for_access_token(
             detail="Incorrect user_id or password",
         )
 
-    login_at = datetime.now(tz=tokyo_tz)
+    login_at = get_current_time()
 
     # アクセストークンのペイロード
     access_token_payload = JWTTokenPayload(
@@ -153,6 +101,8 @@ async def login_for_access_token(
     refresh_token: str = jwt.encode(
         data=refresh_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
     )
+    
+    # リフレッシュトークンをクッキーにセット
     response.delete_cookie(key="refresh_token")
     response.set_cookie(
         key="refresh_token",
@@ -195,7 +145,7 @@ async def update_token(
     logging.info(f"update_token, token: {token}")
 
     # アクセストークンのデコード
-    access_token_payload = verify_token(token=token)
+    access_token_payload = decode_token(token=token)
 
     # アクセストークンの有効期限が切れていない場合、元のアクセストークンを返す
     if not is_past(access_token_payload.expire):
@@ -210,7 +160,7 @@ async def update_token(
         )
 
     # リフレッシュトークンのデコード
-    refresh_token_payload = verify_token(token=old_refresh_token)
+    refresh_token_payload = decode_token(token=old_refresh_token)
 
     # リフレッシュトークンの有効期限が切れている場合、何も返さない
     if is_past(refresh_token_payload.expire):
@@ -303,7 +253,7 @@ async def validate_token(
     token: str = Depends(oauth2_scheme),
 ) -> bool:
     # アクセストークンをデコードする
-    token_payload = verify_token(token=token)
+    token_payload = decode_token(token=token)
     
     # 有効期限が過ぎているのなら、False, 過ぎていないならTrue
     return not is_past(token_payload.expire)
@@ -312,12 +262,11 @@ async def validate_token(
 @router.post("/logout")
 async def logout(
     response: Response,
-    request: Request,
     db: Session = Depends(get_db),
     token: str = Depends(oauth2_scheme),
 ):
     # アクセストークンをデコードする
-    access_token_payload = verify_token(token=token)
+    access_token_payload = decode_token(token=token)
     
     # 該当するLoginHistoryを削除
     authorize.remove_login_history(
