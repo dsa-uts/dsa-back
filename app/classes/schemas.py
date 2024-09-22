@@ -239,10 +239,33 @@ class LoginHistoryRecord(BaseModel):
     user_id: str
     login_at: datetime
     logout_at: datetime
-    disabled: bool
     refresh_count: int
     current_access_token: str = Field(max_length=511)
     current_refresh_token: str = Field(max_length=511)
+
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+
+class Role(Enum):
+    admin = 'admin'
+    manager = 'manager'
+    student = 'student'
+
+
+class UserRecord(BaseModel):
+    user_id: str = Field(max_length=255)
+    username: str = Field(max_length=255)
+    email: str = Field(max_length=255)
+    hashed_password: str = Field(max_length=255)
+    role: Role
+    disabled: bool
+    created_at: datetime
+    updated_at: datetime
+    active_start_date: datetime
+    active_end_date: datetime
 
 
 class UserBase(BaseModel):
@@ -254,10 +277,10 @@ class UserBase(BaseModel):
 
 
 class UserCreate(BaseModel):
-    student_id: str
+    user_id: str
     username: str
     email: str
-    raw_password: str  # 暗号化前のパスワード
+    plain_password: str  # 暗号化前のパスワード
     is_admin: bool = False
     disabled: bool = False
     created_at: Optional[datetime] = None
@@ -290,8 +313,11 @@ class Token(BaseModel):
     token_type: str
     login_time: datetime
     user_id: int
-    is_admin: bool
+    role: Role
 
+    @field_serializer('role')
+    def serialize_role(self, role: Role, _info):
+        return role.value
 
 class TokenData(BaseModel):
     username: Union[str, None] = None
@@ -302,6 +328,7 @@ class JWTTokenPayload(BaseModel):
     login: datetime
     expire: datetime
     scopes: list[str] = Field(default_factory=list)
+    role: Role
 
     model_config = {
         # JWTトークンのdict型からJWTTokenPayloadへ変換するための設定
@@ -312,6 +339,10 @@ class JWTTokenPayload(BaseModel):
     @field_serializer('login', 'expire')
     def serialize_datetime_fields(self, dt: datetime, _info):
         return dt.strftime('%Y-%m-%d %H:%M:%S')
+    
+    @field_serializer('role')
+    def serialize_role(self, role: Role, _info):
+        return role.value
 
 
 class AccessToken(BaseModel):
