@@ -103,6 +103,18 @@ class SubmissionSummaryStatus(BaseJudgeStatusWithOrder):
     FN = "FN"  # File Not found
 
 
+class LectureRecord(BaseModel):
+    id: int
+    title: str = Field(max_length=255)
+    start_date: datetime
+    end_date: datetime
+
+
+class ArrangedFileRecord(BaseModel):
+    str_id: str
+    path: str
+
+
 class SubmissionRecord(BaseModel):
     id: int
     ts: datetime

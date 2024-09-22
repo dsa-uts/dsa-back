@@ -13,6 +13,7 @@ oauth2_scheme = OAuth2PasswordBearer(
         # Manager用
         "view_users": "view user list",
         "batch": "batch submission & view of summary",
+        "view_all_problems": "view all problems including private problems",
         # 学生用
         "format-chk": "format check submission ",
         # 全員
@@ -21,8 +22,8 @@ oauth2_scheme = OAuth2PasswordBearer(
 )
 
 SCOPES = {
-    "admin": ["batch", "account", "format-chk", "view_users", "me"],
-    "manager": ["batch", "format-chk", "view_users", "me"],
+    "admin": ["batch", "account", "format-chk", "view_users", "me", "view_all_problems"],
+    "manager": ["batch", "format-chk", "view_users", "me", "view_all_problems"],
     "student": ["format-chk", "me"]
 }
 

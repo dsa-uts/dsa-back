@@ -52,6 +52,13 @@ def is_past(ts: datetime) -> bool:
     return TOKYO_TZ.localize(ts) <= datetime.now(TOKYO_TZ)
 
 
+def is_future(ts: datetime) -> bool:
+    """
+    指定された日時が未来かどうかを確認する
+    """
+    return TOKYO_TZ.localize(ts) >= datetime.now(TOKYO_TZ)
+
+
 def authenticate_user(
     db: Session, username: str, plain_password: str
 ) -> schemas.UserRecord | bool:

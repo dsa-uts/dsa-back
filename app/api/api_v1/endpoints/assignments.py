@@ -9,8 +9,10 @@ from ....classes import models
 from typing import List, Optional
 from datetime import datetime
 from pytz import timezone
-from fastapi import UploadFile, File, HTTPException
+from fastapi import UploadFile, File, HTTPException, Security, status
 from fastapi.responses import JSONResponse
+from app.api.api_v1.endpoints import authenticate_util
+from typing import Annotated
 import os
 import logging
 import asyncio
@@ -24,36 +26,168 @@ logging.basicConfig(level=logging.DEBUG)
 
 router = APIRouter()
 
+"""
+/api/v1/assignments/...以下のエンドポイントの定義
+"""
 
-@router.get("/", response_model=List[schemas.AssignmentBase])
-def read_assignments(
-    skip: int = 0,
-    limit: int = 10,
-    db: Session = Depends(get_db),
-    user: Optional[schemas.UserBase] = Depends(users.get_current_user),
-) -> List[schemas.AssignmentBase]:
-    if user is None:
-        return []
-    assignments_list = assignments.get_assignments(db, skip=skip, limit=limit)
-    if not user.is_admin:
-        current_time = datetime.now(timezone("Asia/Tokyo"))
-        assignments_list = utils.filter_assignments_by_time(
-            assignments_list, current_time
+
+async def get_all_lectures(
+    db: Session,
+    current_user: Annotated[
+        schemas.UserRecord, Security(authenticate_util.get_current_active_user)
+    ],
+) -> list[schemas.LectureRecord]:
+    return assignments.get_lecture_list(db)
+
+
+async def get_lecture_entry(
+    db: Session,
+    lecture_id: int,
+    current_user: Annotated[
+        schemas.UserRecord, Security(authenticate_util.get_current_active_user)
+    ],
+) -> schemas.LectureRecord:
+    lecture = assignments.get_lecture(db, lecture_id)
+    if lecture is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="授業エントリが見つかりません"
         )
-    return assignments_list
+    return lecture
 
 
-@router.get("/{id}", response_model=List[schemas.SubAssignmentBase])
-def read_sub_assignments(
-    id: int,
-    db: Session = Depends(get_db),
-    user: Optional[schemas.UserBase] = Depends(users.get_current_user),
-):
-    if user is None:
-        return []
-    utils.validate_assignment(id, user.is_admin, db)
-    sub_assignments_list = assignments.get_sub_assignments(db, id=id)
-    return sub_assignments_list
+async def get_all_problems(
+    db: Session,
+    lecture_id: int,
+    current_user: Annotated[
+        schemas.UserRecord, Security(authenticate_util.get_current_active_user)
+    ],
+) -> list[schemas.ProblemRecord]:
+    return assignments.get_problem_list(db, lecture_id)
+
+
+async def get_problem_entry(
+    db: Session,
+    lecture_id: int,
+    assignment_id: int,
+    for_evaluation: bool,
+    current_user: Annotated[
+        schemas.UserRecord, Security(authenticate_util.get_current_active_user)
+    ],
+) -> schemas.ProblemRecord:
+    problem = assignments.get_problem_recursive(
+        db, lecture_id, assignment_id, for_evaluation
+    )
+    if problem is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="課題エントリが見つかりません"
+        )
+    return problem
+
+
+# 授業エントリに紐づくデータ(授業エントリ、課題エントリ、評価項目、テストケース)が公開期間内かどうかを確認する
+async def check_public_period(
+    lecture_entry: Annotated[schemas.LectureRecord, Depends(get_lecture_entry)]
+) -> bool:
+    return authenticate_util.is_past(
+        lecture_entry.start_date
+    ) and authenticate_util.is_future(lecture_entry.end_date)
+
+
+@router.get("/all", response_model=List[schemas.LectureRecord])
+async def read_all_lectures(
+    db: Annotated[Session, Depends(get_db)],
+    lecture_list: Annotated[
+        list[schemas.LectureRecord],
+        Security(get_all_lectures, scopes=["view_all_problems"]),
+    ],
+) -> List[schemas.LectureRecord]:
+    """
+    全ての授業エントリを取得する
+    """
+    return lecture_list
+
+
+@router.get("/all/{lecture_id}", response_model=List[schemas.ProblemRecord])
+async def read_all_problems(
+    problem_list: Annotated[
+        list[schemas.ProblemRecord],
+        Security(get_all_problems, scopes=["view_all_problems"]),
+    ],
+) -> List[schemas.ProblemRecord]:
+    return problem_list
+
+
+@router.get("/all/{lecture_id}/{problem_id}/{for_evaluation}")
+async def read_problem_entry(
+    problem: Annotated[
+        schemas.ProblemRecord, Security(get_problem_entry, scopes=["view_all_problems"])
+    ],
+) -> schemas.ProblemRecord:
+    return problem
+
+
+@router.get("/", response_model=List[schemas.LectureRecord])
+def read_lectures(
+    lecture_list: Annotated[
+        list[schemas.LectureRecord], Security(get_all_lectures, scopes=["me"])
+    ],
+) -> List[schemas.LectureRecord]:
+    """
+    公開期間内の授業エントリを取得する
+    """
+    # 公開期間内の授業エントリのみを返す
+    public_lecture_list = [
+        lecture
+        for lecture in lecture_list
+        if authenticate_util.is_past(lecture.start_date)
+        and authenticate_util.is_future(lecture.end_date)
+    ]
+    return public_lecture_list
+
+
+@router.get("/{lecture_id}", response_model=List[schemas.ProblemRecord])
+def read_problems(
+    lecture_entry: Annotated[schemas.LectureRecord, Depends(get_lecture_entry)],
+    problem_list: Annotated[
+        list[schemas.ProblemRecord], Security(get_all_problems, scopes=["me"])
+    ],
+) -> List[schemas.ProblemRecord]:
+    """
+    公開期間内の授業エントリに紐づく問題のリストを取得する
+    """
+    # Problemsに対応する授業エントリが公開期間内のみ、問題のリストを返す
+    if authenticate_util.is_past(
+        lecture_entry.start_date
+    ) and authenticate_util.is_future(lecture_entry.end_date):
+        return problem_list
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが公開期間内ではありません",
+        )
+
+
+@router.get(
+    "/{lecture_id}/{problem_id}/{for_evaluation}", response_model=schemas.ProblemRecord
+)
+async def read_problem_entry(
+    lecture_entry: Annotated[schemas.LectureRecord, Depends(get_lecture_entry)],
+    problem: Annotated[
+        schemas.ProblemRecord, Security(get_problem_entry, scopes=["me"])
+    ],
+) -> schemas.ProblemRecord:
+    """
+    公開期間内の授業エントリに紐づく問題のエントリを取得する
+    """
+    if authenticate_util.is_past(
+        lecture_entry.start_date
+    ) and authenticate_util.is_future(lecture_entry.end_date):
+        return problem
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが公開期間内ではありません",
+        )
 
 
 @router.get("/{id}/{sub_id}", response_model=schemas.SubAssignmentDetail)
