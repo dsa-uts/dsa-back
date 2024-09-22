@@ -8,19 +8,15 @@ from api.api_v1.dependencies import (
     SCOPES,
 )
 from sqlalchemy.orm import Session
-from ....classes import schemas
-from ....classes.schemas import UserBase, Token, JWTTokenPayload, UserRecord
-from ....crud.db import authorize, utils, users
-from ....classes import models
-from ....dependencies import get_db
+from app.classes import schemas
+from app.crud.db import authorize
+from app.dependencies import get_db
 import jwt
 from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
 from typing import Annotated
 from fastapi.security import OAuth2PasswordRequestForm
 from datetime import timedelta, datetime, timezone
-import pytz
-from typing import Optional
 from api.api_v1.endpoints.authenticate_util import (
     authenticate_user,
     is_past,
@@ -48,7 +44,7 @@ async def login_for_access_token(
     response: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[Session, Depends(get_db)],
-) -> Token:
+) -> schemas.Token:
     logging.info(f"login_for_access_token, form_data: {form_data.username}")
     user = authenticate_user(
         db=db, username=form_data.username, plain_password=form_data.password
@@ -62,7 +58,7 @@ async def login_for_access_token(
     login_at = get_current_time()
 
     # アクセストークンのペイロード
-    access_token_payload = JWTTokenPayload(
+    access_token_payload = schemas.JWTTokenPayload(
         sub=user.user_id,
         login=login_at,
         expire=login_at + access_token_duration,
@@ -70,7 +66,7 @@ async def login_for_access_token(
     )
 
     # リフレッシュトークンのペイロード
-    refresh_token_payload = JWTTokenPayload(
+    refresh_token_payload = schemas.JWTTokenPayload(
         sub=user.user_id,
         login=login_at,
         expire=login_at + refresh_token_duration,
@@ -82,7 +78,7 @@ async def login_for_access_token(
     # form_data.scopesでリクエストされているscopeが、ユーザに認められているスコープと合致しているか検証する
     # ユーザに認められているスコープ(権限情報)の取得
     permitted_scope_list = (
-        [] if UserRecord.role.value not in SCOPES else SCOPES[UserRecord.role.value]
+        [] if schemas.UserRecord.role.value not in SCOPES else SCOPES[schemas.UserRecord.role.value]
     )
     # リクエストされたスコープが、そのユーザに対して全て認められているか調べる
     for requested_scope in form_data.scopes:
@@ -126,12 +122,12 @@ async def login_for_access_token(
         ),
     )
 
-    return Token(
+    return schemas.Token(
         access_token=access_token,
         token_type="bearer",
         login_time=login_at,
         user_id=user.user_id,
-        role=UserRecord.role,
+        role=schemas.UserRecord.role,
     )
 
 
@@ -202,7 +198,7 @@ async def update_token(
 
     # アクセストークンが無効でリフレッシュトークンが有効のとき、
     # 新しいアクセストークンとリフレッシュトークンを発行する
-    new_access_token_payload = JWTTokenPayload(
+    new_access_token_payload = schemas.JWTTokenPayload(
         sub=access_token_payload.sub,
         login=access_token_payload.login,
         ################## Vital ###############################################
@@ -215,7 +211,7 @@ async def update_token(
         data=new_access_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
     )
     
-    new_refresh_token_payload = JWTTokenPayload(
+    new_refresh_token_payload = schemas.JWTTokenPayload(
         sub=refresh_token_payload.sub,
         login=refresh_token_payload.login,
         ################## Vital ###############################################
