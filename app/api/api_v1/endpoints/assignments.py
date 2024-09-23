@@ -21,6 +21,10 @@ import json
 import asyncio
 from .... import constants as constant
 from ....classes import submission_class
+import shutil
+from pathlib import Path
+import tempfile
+import zipfile
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -85,7 +89,7 @@ async def get_problem_entry(
 
 
 # 授業エントリに紐づくデータ(授業エントリ、課題エントリ、評価項目、テストケース)が公開期間内かどうかを確認する
-async def check_public_period(
+async def lecture_is_public(
     lecture_entry: Annotated[schemas.LectureRecord, Depends(get_lecture_entry)]
 ) -> bool:
     return authenticate_util.is_past(
@@ -117,7 +121,7 @@ async def read_all_problems(
     return problem_list
 
 
-@router.get("/all/{lecture_id}/{problem_id}/{for_evaluation}")
+@router.get("/all/{lecture_id}/{problem_id}")
 async def read_problem_entry(
     problem: Annotated[
         schemas.ProblemRecord, Security(get_problem_entry, scopes=["view_all_problems"])
@@ -155,10 +159,7 @@ def read_problems(
     """
     公開期間内の授業エントリに紐づく問題のリストを取得する
     """
-    # Problemsに対応する授業エントリが公開期間内のみ、問題のリストを返す
-    if authenticate_util.is_past(
-        lecture_entry.start_date
-    ) and authenticate_util.is_future(lecture_entry.end_date):
+    if lecture_is_public(lecture_entry):
         return problem_list
     else:
         raise HTTPException(
@@ -167,9 +168,7 @@ def read_problems(
         )
 
 
-@router.get(
-    "/{lecture_id}/{problem_id}/{for_evaluation}", response_model=schemas.ProblemRecord
-)
+@router.get("/{lecture_id}/{problem_id}", response_model=schemas.ProblemRecord)
 async def read_problem_entry(
     lecture_entry: Annotated[schemas.LectureRecord, Depends(get_lecture_entry)],
     problem: Annotated[
@@ -179,9 +178,7 @@ async def read_problem_entry(
     """
     公開期間内の授業エントリに紐づく問題のエントリを取得する
     """
-    if authenticate_util.is_past(
-        lecture_entry.start_date
-    ) and authenticate_util.is_future(lecture_entry.end_date):
+    if lecture_is_public(lecture_entry):
         return problem
     else:
         raise HTTPException(
@@ -190,22 +187,162 @@ async def read_problem_entry(
         )
 
 
-@router.get("/{id}/{sub_id}", response_model=schemas.SubAssignmentDetail)
-def read_sub_assignment(
-    id: int,
-    sub_id: int,
-    db: Session = Depends(get_db),
-    user: Optional[schemas.UserBase] = Depends(users.get_current_user),
-):
-    utils.validate_assignment(id, user.is_admin, db)
-    sub_assignment: models.SubAssignment = assignments.get_sub_assignment(
-        db, id=id, sub_id=sub_id
+@router.post("/{lecture_id}/{assignment_id}/judge/single")
+async def single_judge(
+    file_list: list[UploadFile],
+    user_id: str,  # 採点対象のユーザID(ログインユーザじゃないこともある)
+    db: Annotated[Session, Depends(get_db)],
+    # 注) manager以上がバッチ提出も単体提出も両方使えることを想定していため、スコープはbatchにしている。
+    problem_entry: Annotated[
+        schemas.ProblemRecord, Security(get_problem_entry, scopes=["batch"])
+    ],
+) -> schemas.SubmissionRecord:
+    """
+    単体の採点リクエストを受け付ける
+
+    注) 採点用のエンドポイントで、学生が使うことを想定していない。
+    """
+    # ジャッジリクエストをSubmissionテーブルに登録する
+    submission_record = assignments.register_submission(
+        db=db,
+        batch_id=None,
+        user_id=user_id,
+        lecture_id=problem_entry.lecture_id,
+        assignment_id=problem_entry.assignment_id,
+        for_evaluation=problem_entry.for_evaluation,
     )
-    assignment_title = assignments.get_assignment(db, id).test_dir_name
-    detail = schemas.SubAssignmentDetail(sub_assignment=sub_assignment)
-    detail.set_test_program(assignment_title)
-    detail.set_test_output(assignment_title)
-    return detail
+
+    # アップロードされたファイルを/upload/{submission_id}に配置する
+    # それと同時にUploadedFilesテーブルに登録する
+    upload_dir = Path(constant.UPLOAD_DIR) / "single" / str(submission_record.id)
+    if upload_dir.exists():
+        shutil.rmtree(upload_dir)
+
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    for file in file_list:
+        with file.file as source_file:
+            dest_path = upload_dir / file.filename
+            with open(dest_path, "wb") as dest_file:
+                shutil.copyfileobj(source_file, dest_file)
+            assignments.register_uploaded_file(
+                db=db, submission_id=submission_record.id, path=dest_path
+            )
+
+    # 提出エントリをキューに登録する
+    submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
+    assignments.modify_submission(db=db, submission_record=submission_record)
+
+    return submission_record
+
+
+@router.post("/{lecture_id}/judge/batch")
+async def batch_judge(
+    zip_file: UploadFile,
+    lecture_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        schemas.UserRecord,
+        Security(authenticate_util.get_current_active_user, scopes=["batch"]),
+    ],
+) -> schemas.BatchSubmissionRecord:
+    """
+    バッチ採点リクエストを受け付ける
+
+    注) 採点用のエンドポイントで、学生が使うことを想定していない。
+    """
+
+    # lecture_idに紐づいたProblemRecordのリストを取得する
+    problem_list = assignments.get_problem_list(db, lecture_id)
+
+    # 各Problemエントリに対応する、要求されているファイルのリストを取得する
+    required_files_for_problem: list[list[str]] = []
+    for problem in problem_list:
+        required_files_for_problem.append(
+            assignments.get_required_files(
+                db=db,
+                lecture_id=problem.lecture_id,
+                assignment_id=problem.assignment_id,
+                for_evaluation=problem.for_evaluation,
+            )
+        )
+
+    # バッチ採点のリクエストをBatchSubmissionテーブルに登録する
+    batch_submission_record = assignments.register_batch_submission(
+        db=db,
+        user_id=current_user.user_id,
+    )
+
+    batch_id = batch_submission_record.id
+
+    # アップロードされたzipファイルをテンポラリディレクトリに解凍する。
+    with tempfile.TemporaryDirectory() as temp_dir:
+        with zipfile.ZipFile(zip_file.file, "r") as zip_ref:
+            zip_ref.extractall(temp_dir)
+
+        # 展開先のディレクトリで、フォルダが一個しかない場合、Zipファイルのbase名でネストされて
+        # いる可能性がある。その場合、もう一つネストした先にフォーカスする
+        current_dir = Path(temp_dir)
+        if len(list(current_dir.iterdir())) == 1:
+            nested_dir = current_dir / list(current_dir.iterdir())[0]
+            if nested_dir.is_dir():
+                current_dir = nested_dir
+
+        # current_dirには、"202211479@001202214795"といったような
+        # "学籍番号@UTID13"のフォルダが並んでいて、その下に提出されたソースコードやレポートが
+        # 入っている
+
+        # ユーザごとに各課題のジャッジリクエストを発行する
+        for user_dir in current_dir.iterdir():
+            if not user_dir.is_dir():
+                continue
+
+            # 学籍番号を取得する
+            user_id = user_dir.name.split("@")[0]
+            
+            # ファイルのリストを取得
+            file_list = [file_path for file_path in user_dir.iterdir() if file_path.is_file()]
+            
+            # 各課題のジャッジリクエストを作成する
+            for problem, required_file_list in zip(problem_list, required_files_for_problem):
+                
+                # ジャッジリクエストをSubmissionテーブルに登録する
+                submission_record = assignments.register_submission(
+                    db=db,
+                    batch_id=batch_id,
+                    user_id=user_id,
+                    lecture_id=problem.lecture_id,
+                    assignment_id=problem.assignment_id,
+                    for_evaluation=problem.for_evaluation,
+                )
+                
+                # アップロード先
+                upload_dir = Path(constant.UPLOAD_DIR) / "single" / str(submission_record.id)
+                if upload_dir.exists():
+                    shutil.rmtree(upload_dir)
+
+                upload_dir.mkdir(parents=True, exist_ok=True)
+
+                for file in file_list:
+                    if file.name not in required_file_list:
+                        continue
+                    
+                    with file.file as source_file:
+                        dest_path = upload_dir / file.name
+                        with open(dest_path, "wb") as dest_file:
+                            shutil.copyfileobj(source_file, dest_file)
+                        assignments.register_uploaded_file( 
+                           db=db, submission_id=submission_record.id, path=dest_path
+                        )
+                
+                # 提出エントリをキューに登録する
+                submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
+                assignments.modify_submission(db=db, submission_record=submission_record)
+                
+    return batch_submission_record
+
+
+# TODO: 提出の進捗状況を送信するAPIも作る
 
 
 # 　ファイルをアップロードするためのAPI．進捗送受信の時に使用するfilenameを返す．
@@ -251,59 +388,3 @@ async def upload_file(
         return {"unique_id": unique_id, "filename": file.filename, "result": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File upload failed: {e}")
-
-
-# 進捗を送信するためのWebSocket API
-@router.websocket("/ws/{id}/{sub_id}")
-async def process_progress_ws(websocket: WebSocket, id: int, sub_id: int):
-    await websocket.accept()
-
-    # ハートビート送信のタスク開始
-    asyncio.create_task(send_heartbeat(websocket))
-    # filenameを受け取る．uuidがあるためどのファイルかを識別できる．
-    data = await websocket.receive_text()
-    data_dict = json.loads(data)
-    filename = data_dict["filename"]
-    unique_id = data_dict["unique_id"]
-    # 本来はdockerから進捗を受け取る処理を記述
-    # コンパイルすべきファイルが複数ある場合や，実行するファイルが複数ある場合は，(1/n)のように返しても良いかも．
-    # 例えば，「コンパイル中(1/3)」
-    # statusも"building docker", "compiling", "running", "judging"のように細かく分けても良いかも．
-    steps = ["docker起動中", "コンパイル中", "実行中", "判定中"]
-    try:
-        for i, step in enumerate(steps):
-            # エラーにしてみる
-            # if i == 2:
-            #     raise Exception("エラーが発生しました")
-            progress_percentage = round((i + 1) / (len(steps) + 1) * 100)
-            progress_message = schemas.ProgressMessage(
-                status="progress",
-                message=step,
-                progress_percentage=progress_percentage,
-            )
-            logging.info(f"Sending progress: {progress_message}")
-            await websocket.send_json(progress_message.dict())
-            # 仮の処理として2秒待機
-            await asyncio.sleep(2)
-        # すべてのステップが完了したら成功メッセージを送信
-        success_message = schemas.ProgressMessage(
-            status="done",
-            message="処理が完了しました",
-            progress_percentage=100,
-            result={
-                "function1": "AC",
-                "function2": "WA",  # WAとかじゃなくエラーメッセージとかを詳細にまとめたdictにしたい．
-                "function3": "TLE",
-            },  # 仮の結果．
-        )
-        await websocket.send_json(success_message.dict())
-    except Exception as e:
-        error_message = schemas.ProgressMessage(
-            status="error",
-            message="エラーが発生しました．アップロードをやり直してください．",
-            progress_percentage=-1,
-        )
-        logging.error(f"Error occurred: {error_message}")
-        await websocket.send_json(error_message.dict())
-    finally:
-        await websocket.close()
