@@ -221,6 +221,6 @@ class EvaluationResult(Base):
     __tablename__ = "EvaluationResult"
     user_id = Column(String(255), ForeignKey("Users.user_id"), primary_key=True)
     lecture_id = Column(Integer, ForeignKey("Lecture.id"), primary_key=True)
-    score = Column(Integer, nullable=False)
+    score = Column(Integer)
     report_path = Column(String(255))
     comment = Column(String)

@@ -238,3 +238,15 @@ def register_batch_submission(db: Session, user_id: str) -> schemas.BatchSubmiss
     db.commit()
     db.refresh(new_batch_submission)
     return schemas.BatchSubmissionRecord(**new_batch_submission.__dict__)
+
+
+def register_evaluation_result(
+    db: Session,
+    evaluation_result_record: schemas.EvaluationResultRecord
+) -> None:
+    """
+    評価結果をEvaluationResultテーブルに登録する関数
+    """
+    new_evaluation_result = models.EvaluationResult(**evaluation_result_record.model_dump())
+    db.add(new_evaluation_result)
+    db.commit()

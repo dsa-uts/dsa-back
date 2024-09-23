@@ -111,7 +111,7 @@ async def read_all_lectures(
     return lecture_list
 
 
-@router.get("/all/{lecture_id}", response_model=List[schemas.ProblemRecord])
+@router.get("/{lecture_id}/all", response_model=List[schemas.ProblemRecord])
 async def read_all_problems(
     problem_list: Annotated[
         list[schemas.ProblemRecord],
@@ -121,7 +121,7 @@ async def read_all_problems(
     return problem_list
 
 
-@router.get("/all/{lecture_id}/{problem_id}")
+@router.get("/{lecture_id}/{problem_id}/all", response_model=schemas.ProblemRecord)
 async def read_problem_entry(
     problem: Annotated[
         schemas.ProblemRecord, Security(get_problem_entry, scopes=["view_all_problems"])
@@ -254,6 +254,9 @@ async def batch_judge(
 
     # lecture_idに紐づいたProblemRecordのリストを取得する
     problem_list = assignments.get_problem_list(db, lecture_id)
+    
+    # for_evaluationがTrueのProblemRecordのリストを抽出する
+    problem_list = [problem for problem in problem_list if problem.for_evaluation]
 
     # 各Problemエントリに対応する、要求されているファイルのリストを取得する
     required_files_for_problem: list[list[str]] = []
@@ -338,53 +341,42 @@ async def batch_judge(
                 # 提出エントリをキューに登録する
                 submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
                 assignments.modify_submission(db=db, submission_record=submission_record)
+            
+            # PDFファイルを探す
+            report_path: Path | None = None
+            for file in file_list:
+                if file.name.endswith(".pdf"):
+                    # "UPLOAD_DIR/report/{user_id}/{lecture_id}/"にアップロード
+                    report_path = upload_dir / "report" / user_id / str(problem.lecture_id) / file.name
+                    report_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy(file, report_path)
+                    break
+            
+            # EvaluationResultレコードを登録する
+            assignments.register_evaluation_result(
+                db=db,
+                evaluation_result_record=schemas.EvaluationResultRecord(
+                    user_id=user_id,
+                    lecture_id=problem.lecture_id,
+                    score=None,
+                    report_path=str(report_path) if report_path is not None else None,
+                    comment=None,
+                )
+            )
                 
     return batch_submission_record
 
 
 # TODO: 提出の進捗状況を送信するAPIも作る
+# @router.get("/{submission_id}/status")
+# async def read_submission_status(
+#     submission_id: int,
+#     db: Annotated[Session, Depends(get_db)],
+#     current_user
+# ) -> schemas.SubmissionRecord:
+#     """
+#     提出の進捗状況を取得する
+#     """
+#     return assignments.get_submission(db, submission_id)
 
 
-# 　ファイルをアップロードするためのAPI．進捗送受信の時に使用するfilenameを返す．
-# uuid + filenameにしてるけど，uuidをディレクトリ名にしてその下に普通にfilenameを配置するのでも良いかも．
-# その場合makefile等がそのまま使えるはず．uuid + filenameの場合はスペースでsplitして使う(?)
-@router.post("/upload/{id}/{sub_id}")
-async def upload_file(
-    id: int,
-    sub_id: int,
-    upload_file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-):
-    unique_id = str(uuid.uuid4())  # UUIDを文字列に変換
-    sub_assignment = assignments.get_sub_assignment(db, id, sub_id)
-    try:
-        function_tests = assignments.get_function_tests_by_sub_id(
-            db, sub_assignment.id, sub_assignment.sub_id
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Function test not found: {e}")
-    try:
-        # 一時的なアップロードディレクトリパスを生成
-        try:
-            temp_upload_path = os.path.join(constant.TEMP_UPLOAD_DIR, unique_id)
-            file_operation.mkdir(temp_upload_path)
-            # ファイルを一時ディレクトリに保存
-            temp_file_path = os.path.join(temp_upload_path, upload_file.filename)
-            file: schemas.File = schemas.File(
-                file_path=temp_file_path, upload_file=upload_file
-            )
-        except Exception as e:
-            logging.error(f"File save failed: {e}")
-        try:
-            submission = submission_class.FormatCheckClass(
-                [sub_assignment], unique_id, [unique_id], file
-            )
-        except Exception as e:
-            logging.error(f"Submission class failed: {e}")
-        try:
-            submission.build_docker_mount_directory(function_tests)
-        except Exception as e:
-            logging.error(f"Build docker mount directory failed: {e}")
-        return {"unique_id": unique_id, "filename": file.filename, "result": "success"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"File upload failed: {e}")
