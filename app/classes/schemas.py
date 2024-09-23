@@ -115,6 +115,11 @@ class ArrangedFileRecord(BaseModel):
     path: str
 
 
+class BatchSubmissionRecord(BaseModel):
+    id: int
+    ts: datetime
+    user_id: str
+
 class SubmissionRecord(BaseModel):
     id: int
     ts: datetime
@@ -131,6 +136,10 @@ class SubmissionRecord(BaseModel):
         # sqlalchemyのレコードデータからマッピングするための設定
         "from_attributes": True
     }
+    
+    @field_serializer("progress")
+    def serialize_progress(self, progress: SubmissionProgressStatus, _info):
+        return progress.value
 
 
 class TestCaseRecord(BaseModel):
@@ -253,6 +262,14 @@ class SubmissionSummaryRecord(BaseModel):
     score: int
     # 以降、クライアントで必要になるフィールド
     evaluation_summary_list: list[EvaluationSummaryRecord] = Field(default_factory=list)
+
+
+class EvaluationResultRecord(BaseModel):
+    user_id: str
+    lecture_id: int
+    score: int
+    report_path: str | None
+    comment: str | None
 
 
 class LoginHistoryRecord(BaseModel):
