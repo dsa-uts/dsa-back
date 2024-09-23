@@ -267,7 +267,7 @@ class SubmissionSummaryRecord(BaseModel):
 class EvaluationResultRecord(BaseModel):
     user_id: str
     lecture_id: int
-    score: int
+    score: int | None
     report_path: str | None
     comment: str | None
 
