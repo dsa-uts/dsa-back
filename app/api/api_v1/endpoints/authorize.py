@@ -73,12 +73,22 @@ async def login_for_access_token(
         scopes=form_data.scopes,
     )
 
+    # リクエストされたスコープが空の場合、ユーザの権限情報をスコープとして設定する
+    if len(form_data.scopes) == 0:
+        form_data.scopes = (
+            []
+            if schemas.UserRecord.role.value not in SCOPES
+            else SCOPES[schemas.UserRecord.role.value]
+        )
+
     ############################## Vital Code ##################################
     ############################################################################
     # form_data.scopesでリクエストされているscopeが、ユーザに認められているスコープと合致しているか検証する
     # ユーザに認められているスコープ(権限情報)の取得
     permitted_scope_list = (
-        [] if schemas.UserRecord.role.value not in SCOPES else SCOPES[schemas.UserRecord.role.value]
+        []
+        if schemas.UserRecord.role.value not in SCOPES
+        else SCOPES[schemas.UserRecord.role.value]
     )
     # リクエストされたスコープが、そのユーザに対して全て認められているか調べる
     for requested_scope in form_data.scopes:
@@ -97,7 +107,7 @@ async def login_for_access_token(
     refresh_token: str = jwt.encode(
         data=refresh_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
     )
-    
+
     # リフレッシュトークンをクッキーにセット
     response.delete_cookie(key="refresh_token")
     response.set_cookie(
@@ -193,7 +203,8 @@ async def update_token(
     if login_history.refresh_count > 3:
         authorize.remove_login_history(db=db, user_id=user_id, login_at=login_at)
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="your login session has expired"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="your login session has expired",
         )
 
     # アクセストークンが無効でリフレッシュトークンが有効のとき、
@@ -205,12 +216,12 @@ async def update_token(
         # 以前のアクセストークンの失効時間からアクセストークンの有効期間の分だけ伸ばす
         expire=access_token_payload.expire + access_token_duration,
         ########################################################################
-        scopes=access_token_payload.scopes
+        scopes=access_token_payload.scopes,
     )
     new_access_token: str = jwt.encode(
         data=new_access_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
     )
-    
+
     new_refresh_token_payload = schemas.JWTTokenPayload(
         sub=refresh_token_payload.sub,
         login=refresh_token_payload.login,
@@ -219,19 +230,19 @@ async def update_token(
         # 伸ばす
         expire=access_token_payload.expire + refresh_token_duration,
         ########################################################################
-        scopes=refresh_token_payload.scopes
+        scopes=refresh_token_payload.scopes,
     )
     new_refresh_token: str = jwt.encode(
         data=new_refresh_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
     )
-    
+
     # 新しいトークンペアをLoginHistoryに登録 + refresh_countを1加算
     login_history.logout_at = new_access_token_payload.expire
     login_history.refresh_count += 1
     login_history.current_access_token = new_access_token
     login_history.current_refresh_token = new_refresh_token
     authorize.update_login_history(db=db, login_history_record=login_history)
-    
+
     # 新しいリフレッシュトークンをクッキーにセット
     response.set_cookie(
         key="refresh_token",
@@ -239,10 +250,11 @@ async def update_token(
         httponly=True,
         secure=False,
         samesite="Lax",
-        expires=datetime.now(timezone.utc) + refresh_token_duration
+        expires=datetime.now(timezone.utc) + refresh_token_duration,
     )
-    
+
     return new_access_token
+
 
 @router.post("/token/validate")
 async def validate_token(
@@ -250,7 +262,7 @@ async def validate_token(
 ) -> bool:
     # アクセストークンをデコードする
     token_payload = decode_token(token=token)
-    
+
     # 有効期限が過ぎているのなら、False, 過ぎていないならTrue
     return not is_past(token_payload.expire)
 
@@ -263,14 +275,12 @@ async def logout(
 ):
     # アクセストークンをデコードする
     access_token_payload = decode_token(token=token)
-    
+
     # 該当するLoginHistoryを削除
     authorize.remove_login_history(
-        db=db,
-        user_id=access_token_payload.sub,
-        login_at=access_token_payload.login
+        db=db, user_id=access_token_payload.sub, login_at=access_token_payload.login
     )
-    
+
     # クッキーからrefresh_tokenを削除
     response.delete_cookie(key="refresh_token")
     return {"msg": "ログアウトしました。"}
