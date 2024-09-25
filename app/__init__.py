@@ -2,13 +2,12 @@ import logging
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
-from .api.api_v1.endpoints import api_router
-from .crud.db import init_db
+from app.api.api_v1.endpoints import api_router
+from app.crud.db import init_db
 from contextlib import asynccontextmanager
-from .classes.models import AccessToken, RefreshToken
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
-from .dependencies import get_db
+from app.dependencies import get_db
 import os
 
 # ロギング設定
@@ -20,36 +19,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     # アプリケーションの起動時に実行される処理
     init_db()
-    # スケジューラの設定
-    scheduler = BackgroundScheduler()
-
-    def delete_expired_tokens():
-        with get_db() as db:  # セッションを取得
-            expiration_threshold = datetime.utcnow() - timedelta(hours=24)
-
-            # 失効から24時間以上経過したアクセストークンを削除
-            db.query(AccessToken).filter(
-                AccessToken.expired_at < expiration_threshold,
-                AccessToken.is_expired == True,
-            ).delete(synchronize_session=False)
-
-            # 失効から24時間以上経過したリフレッシュトークンを削除
-            db.query(RefreshToken).filter(
-                RefreshToken.expired_at < expiration_threshold,
-                RefreshToken.is_expired == True,
-            ).delete(synchronize_session=False)
-
-            db.commit()
-            logger.info("Expired tokens deleted")
-
-    # 毎日1回実行するジョブをスケジュール
-    scheduler.add_job(delete_expired_tokens, "interval", days=1)
-    scheduler.start()
-
     yield
-    # アプリケーションの終了時にスケジューラを停止
-    scheduler.shutdown()
-
+    # アプリケーションの終了時に実行される処理
+    # nothing 今のところは
 
 def create_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan)
