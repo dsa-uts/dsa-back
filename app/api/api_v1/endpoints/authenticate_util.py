@@ -1,11 +1,11 @@
-from dependencies import (
+from app.api.api_v1.dependencies import (
     pwd_context,
     oauth2_scheme,
     SECRET_KEY,
     ALGORITHM,
     SCOPES,
 )
-from classes import schemas
+from app.classes import schemas
 import pytz
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -13,7 +13,7 @@ import jwt
 from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
 from fastapi import HTTPException, status
-import crud.db.users as crud_users
+import app.crud.db.users as crud_users
 from fastapi import Depends, Security
 from fastapi.security import SecurityScopes
 from typing import Annotated

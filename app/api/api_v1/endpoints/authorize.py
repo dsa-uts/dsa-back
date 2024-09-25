@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
-from api.api_v1.dependencies import (
+from app.api.api_v1.dependencies import (
     oauth2_scheme,
     SECRET_KEY,
     ALGORITHM,
@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from typing import Annotated
 from fastapi.security import OAuth2PasswordRequestForm
 from datetime import timedelta, datetime, timezone
-from api.api_v1.endpoints.authenticate_util import (
+from app.api.api_v1.endpoints.authenticate_util import (
     authenticate_user,
     is_past,
     decode_token,
@@ -176,7 +176,7 @@ async def update_token(
 
     # アクセストークンとリフレッシュトークンが正しいペアかどうか検証する
     if (
-        access_token_payload.sub != refresh_token_payload
+        access_token_payload.sub != refresh_token_payload.sub
         or access_token_payload.login != refresh_token_payload.login
         or set(access_token_payload.scopes) != set(refresh_token_payload.scopes)
         or access_token_payload.role != refresh_token_payload.role

@@ -17,8 +17,7 @@ from ...api.api_v1.dependencies import (
 )
 import pytz
 from datetime import datetime
-from . import utils
-from ... import constants
+from app import constants
 import logging
 
 logging.basicConfig(level=logging.DEBUG)

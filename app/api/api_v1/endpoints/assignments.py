@@ -1,11 +1,8 @@
-from ....crud.db import assignments, utils, users
-from ....crud.utils import send_heartbeat
-from ....crud import file_operation
-from fastapi import APIRouter, Depends, WebSocket
+from ....crud.db import assignments, users
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from ....dependencies import get_db
 from ....classes import schemas
-from ....classes import models
 from typing import List, Optional
 from datetime import datetime
 from pytz import timezone
@@ -13,14 +10,8 @@ from fastapi import UploadFile, File, HTTPException, Security, status
 from fastapi.responses import JSONResponse
 from app.api.api_v1.endpoints import authenticate_util
 from typing import Annotated
-import os
 import logging
-import asyncio
-import uuid
-import json
-import asyncio
 from .... import constants as constant
-from ....classes import submission_class
 import shutil
 from pathlib import Path
 import tempfile

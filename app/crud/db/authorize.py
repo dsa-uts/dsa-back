@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 import jwt
 from jwt.exceptions import InvalidTokenError
 from sqlalchemy.orm import Session
-from ...classes.models import AccessToken, RefreshToken, LoginHistory
-from ...classes.schemas import JWTTokenPayload, LoginHistoryRecord
+from app.classes.models import LoginHistory
+from app.classes.schemas import JWTTokenPayload, LoginHistoryRecord
 from pydantic import ValidationError
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
