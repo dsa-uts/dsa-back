@@ -1,12 +1,12 @@
 import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from ...classes.schemas import UserCreate
-from app.crud.db.authorize import get_password_hash
+from app.classes.schemas import UserRecord, Role
 from datetime import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from ...classes.models import Base
+from app.classes.models import Base
+from app.api.api_v1.endpoints import authenticate_util
 from app import constants
 
 DATABASE_URL = f"mysql+pymysql://{constants.DATABASE_USER}:{constants.DATABASE_PASSWORD}@{constants.DATABASE_HOST}/{constants.DATABASE_NAME}"
@@ -21,21 +21,22 @@ logging.basicConfig(level=logging.DEBUG)
 def init_db():
     db = SessionLocal()
     try:
-        from .users import create_user
+        from app.crud.db.users import create_user
 
         create_user(
             db=db,
-            user=UserCreate(
+            user = UserRecord(
                 user_id=constants.ADMIN_USER_ID,
                 username=constants.ADMIN_USER,
-                plain_password=constants.ADMIN_PASSWORD,
                 email=constants.ADMIN_EMAIL,
-                is_admin=True,
+                hashed_password=authenticate_util.get_password_hash(constants.ADMIN_PASSWORD),
+                role=Role.admin,
                 disabled=False,
                 created_at=datetime.now(),
+                updated_at=datetime.now(),
                 active_start_date=datetime.fromisoformat(constants.ADMIN_START_DATE),
                 active_end_date=datetime.fromisoformat(constants.ADMIN_END_DATE),
-            ),
+            )
         )
     except Exception as e:
         logging.error(f"Error initializing database: {e}")
