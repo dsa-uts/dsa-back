@@ -331,6 +331,10 @@ class UserRecord(BaseModel):
     updated_at: datetime
     active_start_date: datetime
     active_end_date: datetime
+    
+    @field_serializer("role")
+    def serialize_role(self, role: Role, _info):
+        return role.value
 
 
 class UserBase(BaseModel):
@@ -364,8 +368,9 @@ class User(UserBase):
     active_start_date: Optional[datetime] = None
     active_end_date: Optional[datetime] = None
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 
 class UserInDB(User):
@@ -417,8 +422,9 @@ class AccessToken(BaseModel):
     is_expired: bool
     user_id: Optional[int] = None
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 
 class RefreshToken(BaseModel):
@@ -428,8 +434,9 @@ class RefreshToken(BaseModel):
     is_expired: bool
     user_id: Optional[int] = None
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 
 class ProgressMessage(BaseModel):
@@ -446,8 +453,9 @@ class FunctionTest(BaseModel):
     func_name: str
     exec_command: str
 
-    class Config:
-        orm_mode = True
+    model_config = {
+        "from_attributes": True
+    }
 
 
 class File:
