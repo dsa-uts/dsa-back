@@ -63,3 +63,8 @@ def update_disabled_status(db: Session, user_id: str, disabled: bool) -> None:
         user.disabled = disabled
         db.commit()
     return None
+
+
+def admin_user_exists(db: Session) -> bool:
+    user = db.query(models.Users).filter(models.Users.user_id == constants.ADMIN_USER_ID).first()
+    return user is not None

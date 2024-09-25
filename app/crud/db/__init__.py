@@ -21,8 +21,11 @@ logging.basicConfig(level=logging.DEBUG)
 def init_db():
     db = SessionLocal()
     try:
-        from app.crud.db.users import create_user
+        from app.crud.db.users import create_user, admin_user_exists
         #TODO: サーバーを再起動する際、すでにAdminが存在する場合は何もしないようにする。
+        if admin_user_exists(db):
+            db.close()
+            return
 
         create_user(
             db=db,
