@@ -154,7 +154,7 @@ async def get_current_user(
         )
         
     # ユーザに許可されたスコープを取得する
-    allowed_scopes = SCOPES[user.role]
+    allowed_scopes = SCOPES[user.role.value]
     
     # 要求されたスコープがユーザーのスコープに含まれていない場合は、403エラーを返す
     for requested_scope in security_scopes.scopes:

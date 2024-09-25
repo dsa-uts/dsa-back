@@ -240,7 +240,7 @@ class JudgeResultRecord(BaseModel):
 class EvaluationSummaryRecord(BaseModel):
     parent_id: int
     batch_id: int | None
-    user_id: int
+    user_id: str
     lecture_id: int
     assignment_id: int
     for_evaluation: bool

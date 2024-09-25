@@ -206,8 +206,14 @@ async def single_judge_for_format_check(
             detail="課題エントリが見つかりません",
         )
 
-    # 授業エントリが公開期間内かどうかを確認する
-    if not lecture_is_public(problem_entry.lecture_entry):
+    # 授業エントリが公開期間内かどうかを確認す
+    lecture_entry = assignments.get_lecture(db, lecture_id)
+    if lecture_entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが見つかりません",
+        )
+    if not lecture_is_public(lecture_entry):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="授業エントリが公開期間内ではありません",
