@@ -24,7 +24,10 @@ async def lifespan(app: FastAPI):
     # nothing 今のところは
 
 def create_app() -> FastAPI:
-    app = FastAPI(lifespan=lifespan)
+    app = FastAPI(
+        title="DSA Backend Server",
+        version="0.1.0",
+        lifespan=lifespan)
 
     # カスタムHTTPExceptionハンドラー
     @app.exception_handler(HTTPException)
