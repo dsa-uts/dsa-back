@@ -205,7 +205,6 @@ class ProblemRecord(BaseModel):
 
 
 class JudgeResultRecord(BaseModel):
-    ts: datetime
     parent_id: int
     submission_id: int
     testcase_id: int
