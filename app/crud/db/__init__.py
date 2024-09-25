@@ -22,6 +22,7 @@ def init_db():
     db = SessionLocal()
     try:
         from app.crud.db.users import create_user
+        #TODO: サーバーを再起動する際、すでにAdminが存在する場合は何もしないようにする。
 
         create_user(
             db=db,
