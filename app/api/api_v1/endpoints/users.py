@@ -155,7 +155,8 @@ async def get_users_list(
         User, Security(authenticate_util.get_current_user, scopes=["view_users"])
     ],
 ):
-    return users.get_users(db=db)
+    # パスワードを除外して返す
+    return [user.model_dump(exclude={"hashed_password"}) for user in users.get_users(db=db)]
 
 
 @router.post("/delete")
