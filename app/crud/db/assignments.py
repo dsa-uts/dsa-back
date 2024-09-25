@@ -229,7 +229,9 @@ def register_uploaded_file(db: Session, submission_id: int, path: Path) -> None:
     db.commit()
 
 
-def register_batch_submission(db: Session, user_id: str) -> schemas.BatchSubmissionRecord:
+def register_batch_submission(
+    db: Session, user_id: str
+) -> schemas.BatchSubmissionRecord:
     """
     バッチ提出をBatchSubmissionテーブルに登録する関数
     """
@@ -241,12 +243,135 @@ def register_batch_submission(db: Session, user_id: str) -> schemas.BatchSubmiss
 
 
 def register_evaluation_result(
-    db: Session,
-    evaluation_result_record: schemas.EvaluationResultRecord
+    db: Session, evaluation_result_record: schemas.EvaluationResultRecord
 ) -> None:
     """
     評価結果をEvaluationResultテーブルに登録する関数
     """
-    new_evaluation_result = models.EvaluationResult(**evaluation_result_record.model_dump())
+    new_evaluation_result = models.EvaluationResult(
+        **evaluation_result_record.model_dump()
+    )
     db.add(new_evaluation_result)
     db.commit()
+
+
+def get_submission_list_for_student(
+    db: Session, user_id: str, limit: int = 10, offset: int = 0
+) -> List[schemas.SubmissionRecord]:
+    """
+    学生が提出したシングルジャッジの進捗状況を取得する関数
+    """
+    submission_list = (
+        db.query(models.Submission)
+        .filter(
+            models.Submission.user_id == user_id,
+            models.Submission.for_evaluation == False,
+            models.Submission.batch_id == None,
+        )
+        .order_by(models.Submission.id.desc())  # idの降順に並び替え
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+    return [
+        schemas.SubmissionRecord(**submission.__dict__)
+        for submission in submission_list
+    ]
+
+
+def get_batch_submission(
+    db: Session, batch_id: int
+) -> schemas.BatchSubmissionRecord | None:
+    """
+    特定のバッチ採点の進捗状況を取得する関数
+    """
+    batch_submission = (
+        db.query(models.BatchSubmission)
+        .filter(models.BatchSubmission.id == batch_id)
+        .first()
+    )
+    return (
+        schemas.BatchSubmissionRecord(**batch_submission.__dict__)
+        if batch_submission is not None
+        else None
+    )
+
+
+def get_batch_submission_list(
+    db: Session, limit: int = 10, offset: int = 0
+) -> List[schemas.BatchSubmissionRecord]:
+    """
+    バッチ採点の進捗状況を取得する関数
+    """
+    batch_submission_list = (
+        db.query(models.BatchSubmission)
+        .order_by(models.BatchSubmission.id.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+    return [
+        schemas.BatchSubmissionRecord(**batch_submission.__dict__)
+        for batch_submission in batch_submission_list
+    ]
+
+
+def get_submission_list_for_batch(
+    db: Session, batch_id: int
+) -> List[schemas.SubmissionRecord]:
+    """
+    特定のバッチ採点の進捗状況を取得する関数
+    """
+
+    submission_list = (
+        db.query(models.Submission).filter(models.Submission.batch_id == batch_id).all()
+    )
+    return [
+        schemas.SubmissionRecord(**submission.__dict__)
+        for submission in submission_list
+    ]
+
+
+def get_submission_summary(
+    db: Session, submission_id: int
+) -> schemas.SubmissionSummaryRecord:
+    """
+    特定の提出エントリのジャッジ結果を取得する関数
+
+    SubmissionSummaryの中のevaluation_summary_list,
+    evaluation_summary_listの中のjudge_result_listといったネスト構造も含めて取得する。
+    """
+    submission_summary = (
+        db.query(models.SubmissionSummary)
+        .filter(models.SubmissionSummary.submission_id == submission_id)
+        .first()
+    )
+    submission_summary_record = schemas.SubmissionSummaryRecord(
+        **submission_summary.__dict__
+    )
+
+    # evaluation_summary_listを取得する
+    evaluation_summary_list = (
+        db.query(models.EvaluationSummary)
+        .filter(models.EvaluationSummary.parent_id == submission_summary.submission_id)
+        .all()
+    )
+    submission_summary_record.evaluation_summary_list = [
+        schemas.EvaluationSummaryRecord(**evaluation_summary.__dict__)
+        for evaluation_summary in evaluation_summary_list
+    ]
+
+    # evaluation_summary_listの中のjudge_result_listを取得する
+    for evaluation_summary in submission_summary_record.evaluation_summary_list:
+        judge_result_list = (
+            db.query(models.JudgeResult)
+            .filter(models.JudgeResult.parent_id == evaluation_summary.id)
+            .all()
+        )
+        evaluation_summary.judge_result_list = [
+            schemas.JudgeResultRecord(**judge_result.__dict__)
+            for judge_result in judge_result_list
+        ]
+
+    return submission_summary_record
+
