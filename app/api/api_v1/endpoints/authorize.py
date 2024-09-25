@@ -63,6 +63,7 @@ async def login_for_access_token(
         login=login_at,
         expire=login_at + access_token_duration,
         scopes=form_data.scopes,
+        role=user.role
     )
 
     # リフレッシュトークンのペイロード
@@ -71,14 +72,15 @@ async def login_for_access_token(
         login=login_at,
         expire=login_at + refresh_token_duration,
         scopes=form_data.scopes,
+        role=user.role
     )
 
     # リクエストされたスコープが空の場合、ユーザの権限情報をスコープとして設定する
     if len(form_data.scopes) == 0:
         form_data.scopes = (
             []
-            if schemas.UserRecord.role.value not in SCOPES
-            else SCOPES[schemas.UserRecord.role.value]
+            if user.role.value not in SCOPES
+            else SCOPES[user.role.value]
         )
 
     ############################## Vital Code ##################################
@@ -87,8 +89,8 @@ async def login_for_access_token(
     # ユーザに認められているスコープ(権限情報)の取得
     permitted_scope_list = (
         []
-        if schemas.UserRecord.role.value not in SCOPES
-        else SCOPES[schemas.UserRecord.role.value]
+        if user.role.value not in SCOPES
+        else SCOPES[user.role.value]
     )
     # リクエストされたスコープが、そのユーザに対して全て認められているか調べる
     for requested_scope in form_data.scopes:
@@ -102,10 +104,10 @@ async def login_for_access_token(
 
     # access_token, refresh_tokenを発行する
     access_token: str = jwt.encode(
-        data=access_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
+        payload=access_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
     )
     refresh_token: str = jwt.encode(
-        data=refresh_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
+        payload=refresh_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
     )
 
     # リフレッシュトークンをクッキーにセット
@@ -127,8 +129,6 @@ async def login_for_access_token(
             login_at=login_at,
             logout_at=login_at + access_token_duration,
             refresh_count=0,
-            current_access_token=access_token,
-            current_refresh_token=refresh_token,
         ),
     )
 
@@ -137,7 +137,7 @@ async def login_for_access_token(
         token_type="bearer",
         login_time=login_at,
         user_id=user.user_id,
-        role=schemas.UserRecord.role,
+        role=user.role,
     )
 
 

@@ -32,16 +32,7 @@ def get_login_history(db: Session, user_id: str, login_at: datetime) -> LoginHis
 
 
 def add_login_history(db: Session, login_history_record: LoginHistoryRecord) -> None:
-    db.add(
-        LoginHistory(
-            user_id=login_history_record.user_id,
-            login_at=login_history_record.login_at,
-            logout_at=login_history_record.logout_at,
-            refresh_count=login_history_record.refresh_count,
-            current_access_token=login_history_record.current_access_token,
-            current_refresh_token=login_history_record.current_refresh_token
-        )
-    )
+    db.add(LoginHistory(**login_history_record.model_dump()))
     db.commit()
 
 

@@ -381,7 +381,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str
     login_time: datetime
-    user_id: int
+    user_id: str
     role: Role
 
     @field_serializer("role")
