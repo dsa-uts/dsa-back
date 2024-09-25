@@ -14,10 +14,8 @@ logging.basicConfig(level=logging.DEBUG)
 
 class Message(BaseModel):
     message: str
-    
-    model_config = {
-        "extra": "allow"
-    }
+
+    model_config = {"extra": "allow"}
 
 
 class SubmissionProgressStatus(Enum):
@@ -120,6 +118,7 @@ class BatchSubmissionRecord(BaseModel):
     ts: datetime
     user_id: str
 
+
 class SubmissionRecord(BaseModel):
     id: int
     ts: datetime
@@ -136,7 +135,7 @@ class SubmissionRecord(BaseModel):
         # sqlalchemyのレコードデータからマッピングするための設定
         "from_attributes": True
     }
-    
+
     @field_serializer("progress")
     def serialize_progress(self, progress: SubmissionProgressStatus, _info):
         return progress.value
@@ -144,13 +143,14 @@ class SubmissionRecord(BaseModel):
 
 class TestCaseRecord(BaseModel):
     id: int
+    eval_id: str
     description: str | None
     command: str  # nullable=False
     argument_path: str | None
     stdin_path: str | None
     stdout_path: str | None
     stderr_path: str | None
-    exit_code: int = 0  # default: 0
+    exit_code: int  # default: 0
 
     model_config = {
         # sqlalchemyのレコードデータからマッピングするための設定
@@ -165,6 +165,9 @@ class EvaluationType(Enum):
 
 class EvaluationItemRecord(BaseModel):
     str_id: str
+    lecture_id: int
+    assignment_id: int
+    for_evaluation: bool
     title: str
     description: str | None
     score: int
@@ -178,6 +181,10 @@ class EvaluationItemRecord(BaseModel):
         # sqlalchemyのレコードデータからマッピングするための設定
         "from_attributes": True
     }
+
+    @field_serializer("type")
+    def serialize_type(self, type: EvaluationType, _info):
+        return type.value
 
 
 class ProblemRecord(BaseModel):
@@ -198,6 +205,8 @@ class ProblemRecord(BaseModel):
 
 
 class JudgeResultRecord(BaseModel):
+    ts: datetime
+    parent_id: int
     submission_id: int
     testcase_id: int
     result: SingleJudgeStatus
@@ -224,9 +233,13 @@ class JudgeResultRecord(BaseModel):
         "from_attributes": True
     }
 
+    @field_serializer("result")
+    def serialize_result(self, result: SingleJudgeStatus, _info):
+        return result.value
+
 
 class EvaluationSummaryRecord(BaseModel):
-    submission_id: int
+    parent_id: int
     batch_id: int | None
     user_id: int
     lecture_id: int
@@ -248,6 +261,15 @@ class EvaluationSummaryRecord(BaseModel):
     # 以降、クライアントで必要になるフィールド
     judge_result_list: list[JudgeResultRecord] = Field(default_factory=list)
 
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+    @field_serializer("result")
+    def serialize_result(self, result: EvaluationSummaryStatus, _info):
+        return result.value
+
 
 class SubmissionSummaryRecord(BaseModel):
     submission_id: int
@@ -262,6 +284,15 @@ class SubmissionSummaryRecord(BaseModel):
     score: int
     # 以降、クライアントで必要になるフィールド
     evaluation_summary_list: list[EvaluationSummaryRecord] = Field(default_factory=list)
+
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+    @field_serializer("result")
+    def serialize_result(self, result: SubmissionSummaryStatus, _info):
+        return result.value
 
 
 class EvaluationResultRecord(BaseModel):
@@ -287,9 +318,9 @@ class LoginHistoryRecord(BaseModel):
 
 
 class Role(Enum):
-    admin = 'admin'
-    manager = 'manager'
-    student = 'student'
+    admin = "admin"
+    manager = "manager"
+    student = "student"
 
 
 class UserRecord(BaseModel):
@@ -322,7 +353,7 @@ class UserCreate(BaseModel):
     disabled: bool = False
     active_start_date: Optional[datetime] = None
     active_end_date: Optional[datetime] = None
-    
+
 
 class UserDelete(BaseModel):
     user_ids: List[int]
@@ -351,9 +382,10 @@ class Token(BaseModel):
     user_id: int
     role: Role
 
-    @field_serializer('role')
+    @field_serializer("role")
     def serialize_role(self, role: Role, _info):
         return role.value
+
 
 class TokenData(BaseModel):
     username: Union[str, None] = None
@@ -370,13 +402,13 @@ class JWTTokenPayload(BaseModel):
         # JWTトークンのdict型からJWTTokenPayloadへ変換するための設定
         "from_attributes": True
     }
-    
+
     # dict型に変換するときに、mysqlのDATETIMEフォーマットに合わせるためのシリアライズ関数
-    @field_serializer('login', 'expire')
+    @field_serializer("login", "expire")
     def serialize_datetime_fields(self, dt: datetime, _info):
-        return dt.strftime('%Y-%m-%d %H:%M:%S')
-    
-    @field_serializer('role')
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    @field_serializer("role")
     def serialize_role(self, role: Role, _info):
         return role.value
 
