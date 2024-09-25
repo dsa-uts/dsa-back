@@ -128,8 +128,8 @@ class SubmissionRecord(BaseModel):
     assignment_id: int
     for_evaluation: bool
     progress: SubmissionProgressStatus
-    total_task: int = 0
-    completed_task: int = 0
+    total_task: int = Field(default=0)
+    completed_task: int = Field(default=0)
 
     model_config = {
         # sqlalchemyのレコードデータからマッピングするための設定
@@ -220,7 +220,7 @@ class JudgeResultRecord(BaseModel):
     stdin: str | None
     expected_stdout: str | None
     expected_stderr: str | None
-    expected_exit_code: int = 0
+    expected_exit_code: int = Field(default=0)
     # テーブル挿入時に自動で決まる値
     id: int = (
         1  # テーブルに挿入する際は自動設定されるので、コンストラクタで指定する必要が無いように適当な値を入れている
