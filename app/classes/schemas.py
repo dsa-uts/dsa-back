@@ -308,8 +308,6 @@ class LoginHistoryRecord(BaseModel):
     login_at: datetime
     logout_at: datetime
     refresh_count: int
-    current_access_token: str = Field(max_length=511)
-    current_refresh_token: str = Field(max_length=511)
 
     model_config = {
         # sqlalchemyのレコードデータからマッピングするための設定

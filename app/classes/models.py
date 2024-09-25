@@ -97,7 +97,7 @@ class Users(Base):
     username = Column(String(255), nullable=False)
     email = Column(String(255), nullable=False)
     hashed_password = Column(String(255), nullable=False)
-    role = Column(Enum('admin', 'manager', 'student'), nullable=False)
+    role = Column(Enum("admin", "manager", "student"), nullable=False)
     disabled = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
     updated_at = Column(
@@ -117,8 +117,6 @@ class LoginHistory(Base):
     login_at = Column(DateTime, nullable=False, primary_key=True)
     logout_at = Column(DateTime, nullable=False)
     refresh_count = Column(Integer, default=0, nullable=False)
-    current_access_token = Column(String(511), nullable=False)
-    current_refresh_token = Column(String(511), nullable=False)
 
 
 class BatchSubmission(Base):
@@ -156,8 +154,9 @@ class JudgeResult(Base):
     __tablename__ = "JudgeResult"
     id = Column(Integer, primary_key=True, autoincrement=True)
     ts = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
-    submission_id = Column(Integer, ForeignKey("Submission.id"))
-    testcase_id = Column(Integer, ForeignKey("TestCases.id"))
+    parent_id = Column(Integer, ForeignKey("EvaluationSummary.id"), nullable=False)
+    submission_id = Column(Integer, ForeignKey("Submission.id"), nullable=False)
+    testcase_id = Column(Integer, ForeignKey("TestCases.id"), nullable=False)
     result = Column(
         Enum("AC", "WA", "TLE", "MLE", "RE", "CE", "OLE", "IE"), nullable=False
     )
@@ -177,7 +176,7 @@ class JudgeResult(Base):
 class EvaluationSummary(Base):
     __tablename__ = "EvaluationSummary"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    submission_id = Column(Integer, ForeignKey("Submission.id"), nullable=False)
+    parent_id = Column(Integer, ForeignKey("SubmissionSummary.submission_id"), nullable=False)
     batch_id = Column(Integer, ForeignKey("BatchSubmission.id"))
     user_id = Column(String(255), ForeignKey("Users.user_id"), nullable=False)
     lecture_id = Column(Integer, ForeignKey("Problem.lecture_id"), nullable=False)
