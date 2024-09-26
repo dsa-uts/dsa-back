@@ -27,12 +27,12 @@ def get_user(db: Session, user_id: str) -> schemas.UserRecord | None:
     user: models.Users | None = (
         db.query(models.Users).filter(models.Users.user_id == user_id).first()
     )
-    return schemas.UserRecord(**user.__dict__) if user else None
+    return schemas.UserRecord.model_validate(user) if user else None
 
 
 def get_users(db: Session) -> List[schemas.UserRecord]:
     users = db.query(models.Users).all()
-    return [schemas.UserRecord(**user.__dict__) for user in users]
+    return [schemas.UserRecord.model_validate(user) for user in users]
 
 
 def exist_user(db: Session, student_id: str) -> bool:
@@ -46,7 +46,7 @@ def create_user(db: Session, user: schemas.UserRecord) -> schemas.UserRecord:
         db.add(db_user)
         db.commit()
         db.refresh(db_user)
-        return schemas.UserRecord(**db_user.__dict__)
+        return schemas.UserRecord.model_validate(db_user)
     except Exception as e:
         db.rollback()
         raise e

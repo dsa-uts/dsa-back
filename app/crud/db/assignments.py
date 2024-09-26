@@ -12,7 +12,7 @@ def get_lecture_list(db: Session) -> List[schemas.LectureRecord]:
     全ての授業エントリを取得する関数
     """
     lecture_list = db.query(models.Lecture).all()
-    return [schemas.LectureRecord(**lecture.__dict__) for lecture in lecture_list]
+    return [schemas.LectureRecord.model_validate(lecture) for lecture in lecture_list]
 
 
 def get_lecture(db: Session, lecture_id: int) -> schemas.LectureRecord | None:
@@ -20,7 +20,7 @@ def get_lecture(db: Session, lecture_id: int) -> schemas.LectureRecord | None:
     特定の回の授業エントリを取得する関数
     """
     lecture = db.query(models.Lecture).filter(models.Lecture.id == lecture_id).first()
-    return schemas.LectureRecord(**lecture.__dict__) if lecture is not None else None
+    return schemas.LectureRecord.model_validate(lecture) if lecture is not None else None
 
 
 def get_problem(
@@ -38,7 +38,7 @@ def get_problem(
         )
         .first()
     )
-    return schemas.ProblemRecord(**problem.__dict__)
+    return schemas.ProblemRecord.model_validate(problem)
 
 
 def get_problem_list(db: Session, lecture_id: int) -> list[schemas.ProblemRecord]:
@@ -48,7 +48,7 @@ def get_problem_list(db: Session, lecture_id: int) -> list[schemas.ProblemRecord
     problem_list = (
         db.query(models.Problem).filter(models.Problem.lecture_id == lecture_id).all()
     )
-    return [schemas.ProblemRecord(**problem.__dict__) for problem in problem_list]
+    return [schemas.ProblemRecord.model_validate(problem) for problem in problem_list]
 
 
 def get_evaluation_item_list(
@@ -67,7 +67,7 @@ def get_evaluation_item_list(
         .all()
     )
     return [
-        schemas.EvaluationItemRecord(**evaluation_item.__dict__)
+        schemas.EvaluationItemRecord.model_validate(evaluation_item)
         for evaluation_item in evaluation_item_list
     ]
 
@@ -84,7 +84,7 @@ def get_evaluation_item(
         .first()
     )
     return (
-        schemas.EvaluationItemRecord(**evaluation_item.__dict__)
+        schemas.EvaluationItemRecord.model_validate(evaluation_item)
         if evaluation_item is not None
         else None
     )
@@ -98,7 +98,7 @@ def get_test_case_list(db: Session, eval_id: str) -> list[schemas.TestCaseRecord
         db.query(models.TestCases).filter(models.TestCases.eval_id == eval_id).all()
     )
     return [
-        schemas.TestCaseRecord(**test_case.__dict__) for test_case in test_case_list
+        schemas.TestCaseRecord.model_validate(test_case) for test_case in test_case_list
     ]
 
 
@@ -119,7 +119,7 @@ def get_problem_recursive(
         )
         .first()
     )
-    problem_record = schemas.ProblemRecord(**problem.__dict__)
+    problem_record = schemas.ProblemRecord.model_validate(problem)
     # problem_record.evaluation_item_listを取得する
     problem_record.evaluation_item_list = get_evaluation_item_list(
         db, lecture_id, assignment_id, for_evaluation
@@ -165,7 +165,7 @@ def get_arranged_filepaths(
         .all()
     )
     return [
-        schemas.ArrangedFileRecord(**arranged_file.__dict__)
+        schemas.ArrangedFileRecord.model_validate(arranged_file)
         for arranged_file in arranged_files
     ]
 
@@ -191,7 +191,7 @@ def register_submission(
     db.add(new_submission)
     db.commit()
     db.refresh(new_submission)
-    return schemas.SubmissionRecord(**new_submission.__dict__)
+    return schemas.SubmissionRecord.model_validate(new_submission)
 
 
 def get_submission(db: Session, submission_id: int) -> schemas.SubmissionRecord | None:
@@ -204,7 +204,7 @@ def get_submission(db: Session, submission_id: int) -> schemas.SubmissionRecord 
         .first()
     )
     return (
-        schemas.SubmissionRecord(**submission.__dict__)
+        schemas.SubmissionRecord.model_validate(submission)
         if submission is not None
         else None
     )
@@ -239,7 +239,7 @@ def register_batch_submission(
     db.add(new_batch_submission)
     db.commit()
     db.refresh(new_batch_submission)
-    return schemas.BatchSubmissionRecord(**new_batch_submission.__dict__)
+    return schemas.BatchSubmissionRecord.model_validate(new_batch_submission)
 
 
 def register_evaluation_result(
@@ -274,7 +274,7 @@ def get_submission_list_for_student(
         .all()
     )
     return [
-        schemas.SubmissionRecord(**submission.__dict__)
+        schemas.SubmissionRecord.model_validate(submission)
         for submission in submission_list
     ]
 
@@ -291,7 +291,7 @@ def get_batch_submission(
         .first()
     )
     return (
-        schemas.BatchSubmissionRecord(**batch_submission.__dict__)
+        schemas.BatchSubmissionRecord.model_validate(batch_submission)
         if batch_submission is not None
         else None
     )
@@ -311,7 +311,7 @@ def get_batch_submission_list(
         .all()
     )
     return [
-        schemas.BatchSubmissionRecord(**batch_submission.__dict__)
+        schemas.BatchSubmissionRecord.model_validate(batch_submission)
         for batch_submission in batch_submission_list
     ]
 
@@ -320,14 +320,14 @@ def get_submission_list_for_batch(
     db: Session, batch_id: int
 ) -> List[schemas.SubmissionRecord]:
     """
-    特定のバッチ採点の進捗状況を取得する関数
+    特定のバッチ採点リクエストに紐づいた全ての提出エントリの進捗状況を取得する関数
     """
 
     submission_list = (
         db.query(models.Submission).filter(models.Submission.batch_id == batch_id).all()
     )
     return [
-        schemas.SubmissionRecord(**submission.__dict__)
+        schemas.SubmissionRecord.model_validate(submission)
         for submission in submission_list
     ]
 
@@ -346,8 +346,8 @@ def get_submission_summary(
         .filter(models.SubmissionSummary.submission_id == submission_id)
         .first()
     )
-    submission_summary_record = schemas.SubmissionSummaryRecord(
-        **submission_summary.__dict__
+    submission_summary_record = schemas.SubmissionSummaryRecord.model_validate(
+        submission_summary
     )
 
     # evaluation_summary_listを取得する
@@ -357,7 +357,7 @@ def get_submission_summary(
         .all()
     )
     submission_summary_record.evaluation_summary_list = [
-        schemas.EvaluationSummaryRecord(**evaluation_summary.__dict__)
+        schemas.EvaluationSummaryRecord.model_validate(evaluation_summary)
         for evaluation_summary in evaluation_summary_list
     ]
 
@@ -369,7 +369,7 @@ def get_submission_summary(
             .all()
         )
         evaluation_summary.judge_result_list = [
-            schemas.JudgeResultRecord(**judge_result.__dict__)
+            schemas.JudgeResultRecord.model_validate(judge_result)
             for judge_result in judge_result_list
         ]
 

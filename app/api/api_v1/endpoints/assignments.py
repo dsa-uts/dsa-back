@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from app.api.api_v1.endpoints import authenticate_util
 from typing import Annotated
 import logging
-from .... import constants as constant
+from app import constants as constant
 import shutil
 from pathlib import Path
 import tempfile
@@ -91,7 +91,7 @@ async def read_problem_entry(
     return problem
 
 
-@router.get("/public/format-check", response_model=List[schemas.LectureRecord])
+@router.get("/public/", response_model=List[schemas.LectureRecord])
 def read_lectures_for_format_check(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
@@ -112,7 +112,7 @@ def read_lectures_for_format_check(
 
 
 @router.get(
-    "/public/format-check/{lecture_id}", response_model=List[schemas.ProblemRecord]
+    "/public/{lecture_id}", response_model=List[schemas.ProblemRecord]
 )
 def read_problems_for_format_check(
     lecture_id: int,
@@ -137,11 +137,12 @@ def read_problems_for_format_check(
             detail="授業エントリが公開期間内ではありません",
         )
     problem_list = assignments.get_problem_list(db, lecture_id)
+    # for_evaluationがFalseの問題のみを返す
     return [problem for problem in problem_list if not problem.for_evaluation]
 
 
 @router.get(
-    "/public/format-check/{lecture_id}/{assignment_id}",
+    "/public/{lecture_id}/{assignment_id}",
     response_model=schemas.ProblemRecord,
 )
 async def read_problem_entry_for_format_check(
@@ -178,7 +179,7 @@ async def read_problem_entry_for_format_check(
     return problem
 
 
-@router.post("/public/format-check/judge/{lecture_id}/{assignment_id}")
+@router.post("/public/judge/{lecture_id}/{assignment_id}")
 async def single_judge_for_format_check(
     file_list: list[UploadFile],
     lecture_id: int,
@@ -253,7 +254,7 @@ async def single_judge_for_format_check(
     return submission_record
 
 
-@router.post("/private/evaluate/judge/{lecture_id}/{assignment_id}")
+@router.post("/private/judge/{lecture_id}/{assignment_id}")
 async def single_judge(
     file_list: list[UploadFile],
     lecture_id: int,
@@ -316,7 +317,7 @@ async def single_judge(
     return submission_record
 
 
-@router.post("/private/evaluate/judge/{lecture_id}")
+@router.post("/private/judge/{lecture_id}")
 async def batch_judge(
     zip_file: UploadFile,
     lecture_id: int,
@@ -466,7 +467,7 @@ async def batch_judge(
     return batch_submission_record
 
 
-@router.get("/public/format-check/status/me/submissions/{submission_id}")
+@router.get("/public/status/me/submissions/{submission_id}")
 async def read_format_check_status_for_student(
     submission_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -476,7 +477,7 @@ async def read_format_check_status_for_student(
     ],
 ) -> schemas.SubmissionRecord:
     """
-    ログインユーザの、特定のシングルジャッジの進捗状況を取得する
+    ログインユーザの、特定のフォーマットチェック提出の進捗状況を取得する
     """
     submission_record = assignments.get_submission(db, submission_id)
     if submission_record is None:
@@ -499,7 +500,7 @@ async def read_format_check_status_for_student(
     return submission_record
 
 
-@router.get("/public/format-check/status/me/submissions")
+@router.get("/public/status/me/submissions")
 async def read_all_format_check_status_for_student(
     page: int,
     db: Annotated[Session, Depends(get_db)],
@@ -525,7 +526,7 @@ async def read_all_format_check_status_for_student(
 # バッチ採点に関しては、ManagerとAdminが全てのバッチ採点の進捗状況を見れるようにしている。
 
 
-@router.get("/private/evaluate/status/batch/{batch_id}")
+@router.get("/private/status/batch/{batch_id}")
 async def read_batch_status(
     batch_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -547,7 +548,7 @@ async def read_batch_status(
     return assignments.get_submission_list_for_batch(db, batch_id)
 
 
-@router.get("/private/evaluate/status/batch")
+@router.get("/private/status/batch")
 async def read_all_batch_status(
     page: int,
     db: Annotated[Session, Depends(get_db)],
@@ -573,7 +574,7 @@ async def read_all_batch_status(
 
 
 # 学生用
-@router.get("/public/format-check/result/me/submissions/{submission_id}")
+@router.get("/public/result/me/submissions/{submission_id}")
 async def read_submission_summary_for_format_check(
     submission_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -606,7 +607,7 @@ async def read_submission_summary_for_format_check(
 
 
 # 採点者用(全員で共有する)
-@router.get("/private/evaluate/result/submissions/{submission_id}")
+@router.get("/private/result/submissions/{submission_id}")
 async def read_submission_summary_for_judge(
     submission_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -628,7 +629,7 @@ async def read_submission_summary_for_judge(
     return submission_summary
 
 
-@router.get("/private/evaluate/result/submissions")
+@router.get("/private/result/submissions")
 async def read_all_submission_summary_for_judge(
     page: int,
     db: Annotated[Session, Depends(get_db)],
@@ -649,7 +650,7 @@ async def read_all_submission_summary_for_judge(
     return assignments.get_all_submission_summary(db, limit=20, offset=(page - 1) * 20)
 
 
-@router.get("/private/evaluate/result/batch/{batch_id   }")
+@router.get("/private/evaluate/result/batch/{batch_id}")
 async def read_batch_submission_summary_for_judge(
     batch_id: int,
     db: Annotated[Session, Depends(get_db)],
