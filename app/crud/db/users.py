@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from ...classes import models
 from ...classes.models import Users
-from ...classes.schemas import UserInDB, UserBase, UserRecord
+from ...classes.schemas import UserBase, UserRecord
 from fastapi import HTTPException, Depends, status, Request
 from typing import Annotated, List
 from ...api.api_v1.dependencies import oauth2_scheme

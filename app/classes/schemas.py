@@ -106,17 +106,35 @@ class LectureRecord(BaseModel):
     title: str = Field(max_length=255)
     start_date: datetime
     end_date: datetime
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
 
 
 class ArrangedFileRecord(BaseModel):
     str_id: str
+    lecture_id: int
+    assignment_id: int
+    for_evaluation: bool
     path: str
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
 
 
 class BatchSubmissionRecord(BaseModel):
     id: int
     ts: datetime
     user_id: str
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
 
 
 class SubmissionRecord(BaseModel):
@@ -300,6 +318,11 @@ class EvaluationResultRecord(BaseModel):
     score: int | None
     report_path: str | None
     comment: str | None
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
 
 
 class LoginHistoryRecord(BaseModel):
@@ -335,6 +358,11 @@ class UserRecord(BaseModel):
     @field_serializer("role")
     def serialize_role(self, role: Role, _info):
         return role.value
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
 
 
 class UserBase(BaseModel):
@@ -373,10 +401,6 @@ class User(UserBase):
     }
 
 
-class UserInDB(User):
-    hashed_password: str
-
-
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -387,10 +411,6 @@ class Token(BaseModel):
     @field_serializer("role")
     def serialize_role(self, role: Role, _info):
         return role.value
-
-
-class TokenData(BaseModel):
-    username: Union[str, None] = None
 
 
 class JWTTokenPayload(BaseModel):
@@ -413,49 +433,6 @@ class JWTTokenPayload(BaseModel):
     @field_serializer("role")
     def serialize_role(self, role: Role, _info):
         return role.value
-
-
-class AccessToken(BaseModel):
-    id: int
-    token: str
-    expired_at: datetime
-    is_expired: bool
-    user_id: Optional[int] = None
-
-    model_config = {
-        "from_attributes": True
-    }
-
-
-class RefreshToken(BaseModel):
-    id: int
-    token: str
-    expired_at: datetime
-    is_expired: bool
-    user_id: Optional[int] = None
-
-    model_config = {
-        "from_attributes": True
-    }
-
-
-class ProgressMessage(BaseModel):
-    status: str
-    message: str
-    progress_percentage: int
-    result: Optional[Dict[str, Any]] = None
-
-
-class FunctionTest(BaseModel):
-    id: int
-    sub_id: int
-    func_id: int
-    func_name: str
-    exec_command: str
-
-    model_config = {
-        "from_attributes": True
-    }
 
 
 class File:
