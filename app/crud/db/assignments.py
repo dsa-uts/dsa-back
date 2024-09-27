@@ -104,7 +104,7 @@ def get_test_case_list(db: Session, eval_id: str) -> list[schemas.TestCaseRecord
 
 def get_problem_recursive(
     db: Session, lecture_id: int, assignment_id: int, for_evaluation: bool
-) -> schemas.ProblemRecord:
+) -> schemas.ProblemRecord | None:
     """
     特定の授業の特定の課題のエントリを取得する関数
 
@@ -119,6 +119,10 @@ def get_problem_recursive(
         )
         .first()
     )
+    
+    if problem is None:
+        return None
+    
     problem_record = schemas.ProblemRecord.model_validate(problem)
     # problem_record.evaluation_item_listを取得する
     problem_record.evaluation_item_list = get_evaluation_item_list(
