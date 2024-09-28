@@ -365,14 +365,6 @@ class UserRecord(BaseModel):
     }
 
 
-class UserBase(BaseModel):
-    id: int
-    username: str
-    student_id: str
-    role: Role
-    disabled: bool
-
-
 class UserCreate(BaseModel):
     user_id: str
     username: str
@@ -386,19 +378,6 @@ class UserCreate(BaseModel):
 
 class UserDelete(BaseModel):
     user_ids: List[int]
-
-
-class User(UserBase):
-    id: int
-    hashed_password: str
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    active_start_date: Optional[datetime] = None
-    active_end_date: Optional[datetime] = None
-
-    model_config = {
-        "from_attributes": True
-    }
 
 
 class Token(BaseModel):

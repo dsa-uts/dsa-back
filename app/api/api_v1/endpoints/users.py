@@ -10,7 +10,7 @@ from typing import Annotated
 from sqlalchemy.orm import Session
 from ....crud.db import users
 from ....dependencies import get_db
-from ....classes.schemas import UserCreate, User, UserDelete
+from ....classes.schemas import UserCreate, UserDelete
 from typing import List
 import logging
 from pydantic import ValidationError
@@ -30,7 +30,7 @@ async def create_user(
     user: UserCreate,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
-        User, Security(authenticate_util.get_current_user, scopes=["account"])
+        schemas.UserRecord, Security(authenticate_util.get_current_user, scopes=["account"])
     ],
 ) -> schemas.Message:
     if db is None or current_user is None:
@@ -84,7 +84,7 @@ async def register_multiple_users(
     db: Annotated[Session, Depends(get_db)],
     # current_userが使われることはないが、sccountというスコープを持つユーザー(admin)のみがこのAPIを利用できるようにするために必要
     current_user: Annotated[
-        User, Security(authenticate_util.get_current_user, scopes=["account"])
+        schemas.UserRecord, Security(authenticate_util.get_current_user, scopes=["account"])
     ],
 ) -> schemas.Message:
     if upload_file.filename.endswith(".csv"):
@@ -147,12 +147,12 @@ async def register_multiple_users(
     )
 
 
-@router.get("/all", response_model=List[User])
+@router.get("/all", response_model=List[schemas.UserRecord])
 async def get_users_list(
     db: Annotated[Session, Depends(get_db)],
     # current_userが使われることはないが、view_usersというスコープを持つユーザー(admin, manager)のみがこのAPIを利用できるようにするために必要
     current_user: Annotated[
-        User, Security(authenticate_util.get_current_user, scopes=["view_users"])
+        schemas.UserRecord, Security(authenticate_util.get_current_user, scopes=["view_users"])
     ],
 ):
     # パスワードを除外して返す
@@ -165,7 +165,7 @@ async def delete_users(
     db: Annotated[Session, Depends(get_db)],
     # current_userが使われることはないが、accountというスコープを持つユーザー(admin)のみがこのAPIを利用できるようにするために必要
     current_user: Annotated[
-        User, Security(authenticate_util.get_current_user, scopes=["account"])
+        schemas.UserRecord, Security(authenticate_util.get_current_user, scopes=["account"])
     ],
 ):
     try:

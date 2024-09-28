@@ -1,22 +1,7 @@
 from ...classes import schemas
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
 from ...classes import models
-from ...classes.models import Users
-from ...classes.schemas import UserBase, UserRecord
-from fastapi import HTTPException, Depends, status, Request
-from typing import Annotated, List
-from ...api.api_v1.dependencies import oauth2_scheme
-from ...dependencies import get_db
-from ...crud.db import authorize
-import jwt
-from jwt.exceptions import InvalidTokenError
-from ...api.api_v1.dependencies import (
-    SECRET_KEY,
-    ALGORITHM,
-)
-import pytz
-from datetime import datetime
+from typing import List
 from app import constants
 import logging
 
