@@ -435,6 +435,10 @@ class JWTTokenPayload(BaseModel):
         return role.value
 
 
+class TokenValidateResponse(BaseModel):
+    is_valid: bool
+
+
 class File:
     file_path: str
     filename: str

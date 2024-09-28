@@ -256,15 +256,29 @@ async def update_token(
     return new_access_token
 
 
-@router.post("/token/validate")
+@router.post("/token/validate", response_model=schemas.TokenValidateResponse)
 async def validate_token(
+    db: Annotated[Session, Depends(get_db)],
     token: str = Depends(oauth2_scheme),
-) -> bool:
+) -> schemas.TokenValidateResponse:
     # アクセストークンをデコードする
     token_payload = decode_token(token=token)
 
     # 有効期限が過ぎているのなら、False, 過ぎていないならTrue
-    return not is_past(token_payload.expire)
+    if is_past(token_payload.expire):
+        return schemas.TokenValidateResponse(is_valid=False)
+    
+    # ログイン履歴を取得する
+    login_history = authorize.get_login_history(
+        db=db, user_id=token_payload.sub, login_at=token_payload.login
+    )
+
+    # ログイン履歴が存在しない場合、False
+    if login_history is None:
+        return schemas.TokenValidateResponse(is_valid=False)
+    
+    # ログイン履歴が存在する場合、True
+    return schemas.TokenValidateResponse(is_valid=True)
 
 
 @router.post("/logout")
