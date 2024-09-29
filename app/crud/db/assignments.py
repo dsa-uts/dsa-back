@@ -20,12 +20,14 @@ def get_lecture(db: Session, lecture_id: int) -> schemas.LectureRecord | None:
     特定の回の授業エントリを取得する関数
     """
     lecture = db.query(models.Lecture).filter(models.Lecture.id == lecture_id).first()
-    return schemas.LectureRecord.model_validate(lecture) if lecture is not None else None
+    return (
+        schemas.LectureRecord.model_validate(lecture) if lecture is not None else None
+    )
 
 
 def get_problem(
     db: Session, lecture_id: int, assignment_id: int, for_evaluation: bool
-) -> schemas.ProblemRecord:
+) -> schemas.ProblemRecord | None:
     """
     特定の授業の特定の課題のエントリを取得する関数
     """
@@ -38,15 +40,24 @@ def get_problem(
         )
         .first()
     )
-    return schemas.ProblemRecord.model_validate(problem)
+    return (
+        schemas.ProblemRecord.model_validate(problem) if problem is not None else None
+    )
 
 
-def get_problem_list(db: Session, lecture_id: int) -> list[schemas.ProblemRecord]:
+def get_problem_list(
+    db: Session, lecture_id: int, for_evaluation: bool
+) -> list[schemas.ProblemRecord]:
     """
     特定の授業に基づく問題のリストを取得する関数
     """
     problem_list = (
-        db.query(models.Problem).filter(models.Problem.lecture_id == lecture_id).all()
+        db.query(models.Problem)
+        .filter(
+            models.Problem.lecture_id == lecture_id,
+            models.Problem.for_evaluation == for_evaluation,
+        )
+        .all()
     )
     return [schemas.ProblemRecord.model_validate(problem) for problem in problem_list]
 
@@ -119,10 +130,10 @@ def get_problem_recursive(
         )
         .first()
     )
-    
+
     if problem is None:
         return None
-    
+
     problem_record = schemas.ProblemRecord.model_validate(problem)
     # problem_record.evaluation_item_listを取得する
     problem_record.evaluation_item_list = get_evaluation_item_list(
@@ -334,11 +345,29 @@ def get_submission_list_for_batch(
         schemas.SubmissionRecord.model_validate(submission)
         for submission in submission_list
     ]
-
+    
 
 def get_submission_summary(
     db: Session, submission_id: int
-) -> schemas.SubmissionSummaryRecord:
+) -> schemas.SubmissionSummaryRecord | None:
+    """
+    特定の提出エントリのジャッジ結果を取得する関数
+    """
+    submission_summary = (
+        db.query(models.SubmissionSummary)
+        .filter(models.SubmissionSummary.submission_id == submission_id)
+        .first()
+    )
+    return (
+        schemas.SubmissionSummaryRecord.model_validate(submission_summary)
+        if submission_summary is not None
+        else None
+    )
+
+
+def get_submission_summary_detail(
+    db: Session, submission_id: int
+) -> schemas.SubmissionSummaryRecord | None:
     """
     特定の提出エントリのジャッジ結果を取得する関数
 
@@ -350,6 +379,10 @@ def get_submission_summary(
         .filter(models.SubmissionSummary.submission_id == submission_id)
         .first()
     )
+
+    if submission_summary is None:
+        return None
+
     submission_summary_record = schemas.SubmissionSummaryRecord.model_validate(
         submission_summary
     )
@@ -378,4 +411,3 @@ def get_submission_summary(
         ]
 
     return submission_summary_record
-

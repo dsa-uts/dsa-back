@@ -160,7 +160,7 @@ async def get_current_user(
     for requested_scope in security_scopes.scopes:
         if requested_scope not in allowed_scopes:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
+                status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Not enough permissions",
             )
     
@@ -184,8 +184,8 @@ async def get_current_active_user(
 
     if current_user.disabled:        
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inactive user"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User is disabled"
         )
 
     return current_user

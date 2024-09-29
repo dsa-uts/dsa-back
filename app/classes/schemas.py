@@ -386,6 +386,7 @@ class Token(BaseModel):
     login_time: datetime
     user_id: str
     role: Role
+    refresh_count: int = Field(default=0)
 
     @field_serializer("role")
     def serialize_role(self, role: Role, _info):
@@ -417,6 +418,9 @@ class JWTTokenPayload(BaseModel):
 class TokenValidateResponse(BaseModel):
     is_valid: bool
 
+
+class TextDataResponse(BaseModel):
+    data: str
 
 class File:
     file_path: str

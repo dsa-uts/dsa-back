@@ -51,7 +51,7 @@ async def login_for_access_token(
     )
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect user_id or password",
         )
 
@@ -96,7 +96,7 @@ async def login_for_access_token(
     for requested_scope in form_data.scopes:
         if requested_scope not in permitted_scope_list:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="your requested access rights is not permitted.",
             )
     ############################################################################
@@ -138,6 +138,7 @@ async def login_for_access_token(
         login_time=login_at,
         user_id=user.user_id,
         role=user.role,
+        refresh_count=0,
     )
 
 
@@ -147,17 +148,13 @@ async def update_token(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     token: Annotated[str, Depends(oauth2_scheme)],
-) -> str:
+) -> schemas.Token:
     logging.info(f"update_token, token: {token}")
 
     # アクセストークンのデコード
     access_token_payload = decode_token(token=token)
 
-    # アクセストークンの有効期限が切れていない場合、元のアクセストークンを返す
-    if not is_past(access_token_payload.expire):
-        return token
-
-    # アクセストークンが無効な場合、リフレッシュトークンを確認
+    # リフレッシュトークンを取得
     old_refresh_token = request.cookies.get("refresh_token")
 
     if old_refresh_token is None:
@@ -198,10 +195,21 @@ async def update_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="login history not found"
         )
+        
+    # アクセストークンの有効期限が切れていない場合、元のアクセストークンを返す
+    if not is_past(access_token_payload.expire):
+        return schemas.Token(
+            access_token=token,
+            token_type="bearer",
+            login_time=access_token_payload.login,
+            user_id=access_token_payload.sub,
+            role=access_token_payload.role,
+            refresh_count=login_history.refresh_count,
+        )
 
     # リフレッシュ回数が上限値を超えているのならば、該当ログイン履歴を削除し、HTTPExceptionを吐く
     if login_history.refresh_count > 3:
-        authorize.remove_login_history(db=db, user_id=user_id, login_at=login_at)
+        # authorize.remove_login_history(db=db, user_id=user_id, login_at=login_at)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="your login session has expired",
@@ -239,8 +247,6 @@ async def update_token(
     # 新しいトークンペアをLoginHistoryに登録 + refresh_countを1加算
     login_history.logout_at = new_access_token_payload.expire
     login_history.refresh_count += 1
-    login_history.current_access_token = new_access_token
-    login_history.current_refresh_token = new_refresh_token
     authorize.update_login_history(db=db, login_history_record=login_history)
 
     # 新しいリフレッシュトークンをクッキーにセット
@@ -253,7 +259,14 @@ async def update_token(
         expires=datetime.now(timezone.utc) + refresh_token_duration,
     )
 
-    return new_access_token
+    return schemas.Token(
+        access_token=new_access_token,
+        token_type="bearer",
+        login_time=login_at,
+        user_id=user_id,
+        role=access_token_payload.role,
+        refresh_count=login_history.refresh_count,
+    )
 
 
 @router.post("/token/validate", response_model=schemas.TokenValidateResponse)

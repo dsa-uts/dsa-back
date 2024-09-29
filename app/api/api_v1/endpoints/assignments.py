@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from ....dependencies import get_db
 from ....classes import schemas
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 from pytz import timezone
 from fastapi import UploadFile, File, HTTPException, Security, status
@@ -33,121 +33,99 @@ async def lecture_is_public(lecture_entry: schemas.LectureRecord) -> bool:
     ) and authenticate_util.is_future(lecture_entry.end_date)
 
 
-@router.get("/all", response_model=List[schemas.LectureRecord])
-async def read_all_lectures(
+async def access_sanitize(
+    open: bool | None = None,  # 公開期間内かどうか
+    evaluation: bool | None = None,  # 評価問題かどうか
+    role: schemas.Role | None = None,  # ユーザのロール
+) -> None:
+    """
+    アクセス権限のチェックを行う
+    """
+    if role not in [schemas.Role.manager, schemas.Role.admin]:
+        # ユーザがManager, Adminでない場合は、公開期間外の情報を取得することはできない
+        if open is not None and open is False:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="公開期間外の情報を取得する権限がありません",
+            )
+        # ユーザがManager, Adminでない場合は、評価問題の情報を取得することはできない
+        if evaluation is not None and evaluation is True:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="評価問題を取得する権限がありません",
+            )
+
+
+@router.get("/", response_model=List[schemas.LectureRecord])
+async def read_(
+    open: bool,  # 公開期間内かどうか
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
-        Security(
-            authenticate_util.get_current_active_user, scopes=["view_all_problems"]
-        ),
+        Security(authenticate_util.get_current_active_user, scopes=["me"]),
     ],
 ) -> List[schemas.LectureRecord]:
     """
-    全ての授業エントリを取得する
+    授業エントリを取得する
     """
+    ############################### Vital #####################################
+    access_sanitize(open=open, role=current_user.role)
+    ############################### Vital #####################################
+
     lecture_list = assignments.get_lecture_list(db)
-    return lecture_list
+    if open is True:
+        return [lecture for lecture in lecture_list if lecture_is_public(lecture)]
+    else:
+        return [lecture for lecture in lecture_list if not lecture_is_public(lecture)]
 
 
-@router.get("/all/{lecture_id}", response_model=List[schemas.ProblemRecord])
-async def read_all_problems(
-    db: Annotated[Session, Depends(get_db)],
+@router.get("/{lecture_id}", response_model=List[schemas.ProblemRecord])
+async def read_problems(
     lecture_id: int,
+    open: bool,  # 公開期間内かどうか
+    evaluation: bool,  # 評価問題かどうか
+    db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
-        Security(
-            authenticate_util.get_current_active_user, scopes=["view_all_problems"]
-        ),
+        Security(authenticate_util.get_current_active_user, scopes=["me"]),
     ],
 ) -> List[schemas.ProblemRecord]:
-    problem_list = assignments.get_problem_list(db, lecture_id)
+    """
+    授業エントリに紐づく練習問題のリストを取得する
+    """
+    ############################### Vital #####################################
+    access_sanitize(open=open, evaluation=evaluation, role=current_user.role)
+    ############################### Vital #####################################
+    lecture_entry = assignments.get_lecture(db, lecture_id)
+    if lecture_entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが見つかりません",
+        )
+
+    if open is True and not lecture_is_public(lecture_entry):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが公開期間内ではありません",
+        )
+    elif open is False and lecture_is_public(lecture_entry):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが公開期間外ではありません",
+        )
+
+    problem_list = assignments.get_problem_list(
+        db, lecture_id, for_evaluation=evaluation
+    )
     return problem_list
 
 
-@router.get(
-    "/all/{lecture_id}/{assignment_id}/{for_evaluation}",
-    response_model=schemas.ProblemRecord,
-)
-async def read_problem_entry(
-    db: Annotated[Session, Depends(get_db)],
+@router.get("/{lecture_id}/{assignment_id}", response_model=schemas.ProblemRecord)
+async def read_problem(
     lecture_id: int,
     assignment_id: int,
-    for_evaluation: bool,
-    current_user: Annotated[
-        schemas.UserRecord,
-        Security(
-            authenticate_util.get_current_active_user, scopes=["view_all_problems"]
-        ),
-    ],
-) -> schemas.ProblemRecord:
-    problem = assignments.get_problem_recursive(
-        db, lecture_id, assignment_id, for_evaluation
-    )
-    if problem is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="課題エントリが見つかりません"
-        )
-    return problem
-
-
-@router.get("/public/", response_model=List[schemas.LectureRecord])
-def read_lectures_for_format_check(
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[
-        schemas.UserRecord,
-        Security(authenticate_util.get_current_active_user, scopes=["me"]),
-    ],
-) -> List[schemas.LectureRecord]:
-    """
-    公開期間内の授業エントリを取得する
-    """
-    lecture_list = assignments.get_lecture_list(db)
-
-    # 公開期間内の授業エントリのみを返す
-    public_lecture_list = [
-        lecture for lecture in lecture_list if lecture_is_public(lecture)
-    ]
-    return public_lecture_list
-
-
-@router.get(
-    "/public/{lecture_id}", response_model=List[schemas.ProblemRecord]
-)
-def read_problems_for_format_check(
-    lecture_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[
-        schemas.UserRecord,
-        Security(authenticate_util.get_current_active_user, scopes=["me"]),
-    ],
-) -> List[schemas.ProblemRecord]:
-    """
-    公開期間内の授業エントリに紐づく問題のリストを取得する
-    """
-    lecture_entry = assignments.get_lecture(db, lecture_id)
-    if lecture_entry is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが見つかりません",
-        )
-    if not lecture_is_public(lecture_entry):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが公開期間内ではありません",
-        )
-    problem_list = assignments.get_problem_list(db, lecture_id)
-    # for_evaluationがFalseの問題のみを返す
-    return [problem for problem in problem_list if not problem.for_evaluation]
-
-
-@router.get(
-    "/public/{lecture_id}/{assignment_id}",
-    response_model=schemas.ProblemRecord,
-)
-async def read_problem_entry_for_format_check(
-    lecture_id: int,
-    assignment_id: int,
+    open: bool,  # 公開期間内かどうか
+    evaluation: bool,  # 評価問題かどうか
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
@@ -155,35 +133,114 @@ async def read_problem_entry_for_format_check(
     ],
 ) -> schemas.ProblemRecord:
     """
-    公開期間内の授業エントリに紐づく問題のエントリを取得する
+    授業エントリに紐づく練習問題のエントリを取得する
     """
+    ############################### Vital #####################################
+    access_sanitize(open=open, evaluation=evaluation, role=current_user.role)
+    ############################### Vital #####################################
+
     lecture_entry = assignments.get_lecture(db, lecture_id)
     if lecture_entry is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="授業エントリが見つかりません",
         )
-    if not lecture_is_public(lecture_entry):
+
+    if open is True and not lecture_is_public(lecture_entry):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="授業エントリが公開期間内ではありません",
         )
-    problem = assignments.get_problem_recursive(
-        db, lecture_id, assignment_id, for_evaluation=False
+    elif open is False and lecture_is_public(lecture_entry):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが公開期間外ではありません",
+        )
+
+    problem_entry = assignments.get_problem_recursive(
+        db=db,
+        lecture_id=lecture_id,
+        assignment_id=assignment_id,
+        for_evaluation=evaluation,
     )
-    if problem is None:
+    if problem_entry is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="課題エントリが見つかりません",
         )
-    return problem
+    return problem_entry
 
 
-@router.post("/public/judge/{lecture_id}/{assignment_id}")
-async def single_judge_for_format_check(
+@router.get(
+    "/{lecture_id}/{assignment_id}/description",
+    response_model=schemas.TextDataResponse,
+)
+async def read_problem_description(
+    lecture_id: int,
+    assignment_id: int,
+    open: bool,  # 公開期間内かどうか
+    evaluation: bool,  # 評価問題かどうか
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        schemas.UserRecord,
+        Security(authenticate_util.get_current_active_user, scopes=["me"]),
+    ],
+) -> schemas.TextDataResponse:
+    """
+    授業エントリに紐づく練習問題の説明を取得する
+    """
+    ############################### Vital #####################################
+    access_sanitize(open=open, evaluation=evaluation, role=current_user.role)
+    ############################### Vital #####################################
+    problem_entry = assignments.get_problem(
+        db=db,
+        lecture_id=lecture_id,
+        assignment_id=assignment_id,
+        for_evaluation=evaluation,
+    )
+    if problem_entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="課題エントリが見つかりません",
+        )
+
+    lecture_entry = assignments.get_lecture(db, lecture_id)
+    if lecture_entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが見つかりません",
+        )
+
+    if open is True and not lecture_is_public(lecture_entry):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが公開期間内ではありません",
+        )
+    elif open is False and lecture_is_public(lecture_entry):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが公開期間外ではありません",
+        )
+
+    # problem_entry.description_pathのファイルの内容を読み込む
+    description_path = Path(constant.RESOURCE_DIR) / problem_entry.description_path
+    if not description_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="説明ファイルが見つかりません",
+        )
+    with open(description_path, "r") as f:
+        description = f.read()
+    return schemas.TextDataResponse(data=description)
+
+
+@router.post("/{lecture_id}/{assignment_id}/judge")
+async def single_judge(
     file_list: list[UploadFile],
     lecture_id: int,
     assignment_id: int,
+    open: bool,  # 公開期間内かどうか
+    evaluation: bool,  # 評価問題かどうか
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
@@ -191,91 +248,36 @@ async def single_judge_for_format_check(
     ],
 ) -> schemas.SubmissionRecord:
     """
-    単体のフォーマットチェック用の採点リクエストを受け付ける
+    単体の採点リクエストを受け付ける
     """
+    ############################### Vital #####################################
+    access_sanitize(open=open, evaluation=evaluation, role=current_user.role)
+    ############################### Vital #####################################
+
+    lecture_entry = assignments.get_lecture(db, lecture_id)
+    if lecture_entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが見つかりません",
+        )
+
+    if open is True and not lecture_is_public(lecture_entry):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが公開期間内ではありません",
+        )
+    elif open is False and lecture_is_public(lecture_entry):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが公開期間外ではありません",
+        )
 
     # 課題エントリ(lecture_id, assignment_id, for_evaluation=False)を取得する
     problem_entry = assignments.get_problem_recursive(
         db=db,
         lecture_id=lecture_id,
         assignment_id=assignment_id,
-        for_evaluation=False,
-    )
-    if problem_entry is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="課題エントリが見つかりません",
-        )
-
-    # 授業エントリが公開期間内かどうかを確認す
-    lecture_entry = assignments.get_lecture(db, lecture_id)
-    if lecture_entry is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが見つかりません",
-        )
-    if not lecture_is_public(lecture_entry):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが公開期間内ではありません",
-        )
-
-    # ジャッジリクエストをSubmissionテーブルに登録する
-    submission_record = assignments.register_submission(
-        db=db,
-        batch_id=None,
-        user_id=current_user.user_id,
-        lecture_id=lecture_id,
-        assignment_id=assignment_id,
-        for_evaluation=False,
-    )
-
-    # アップロードされたファイルを/upload/{submission_id}に配置する
-    # それと同時にUploadedFilesテーブルに登録する
-    upload_dir = Path(constant.UPLOAD_DIR) / str(submission_record.id)
-    if upload_dir.exists():
-        shutil.rmtree(upload_dir)
-
-    upload_dir.mkdir(parents=True, exist_ok=True)
-
-    for file in file_list:
-        with file.file as source_file:
-            dest_path = upload_dir / file.filename
-            with open(dest_path, "wb") as dest_file:
-                shutil.copyfileobj(source_file, dest_file)
-            assignments.register_uploaded_file(
-                db=db, submission_id=submission_record.id, path=dest_path
-            )
-
-    # 提出エントリをキューに登録する
-    submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
-    assignments.modify_submission(db=db, submission_record=submission_record)
-
-    return submission_record
-
-
-@router.post("/private/judge/{lecture_id}/{assignment_id}")
-async def single_judge(
-    file_list: list[UploadFile],
-    lecture_id: int,
-    assignment_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[
-        schemas.UserRecord,
-        Security(authenticate_util.get_current_active_user, scopes=["batch"]),
-    ],
-) -> schemas.SubmissionRecord:
-    """
-    単体の採点リクエストを受け付ける
-
-    注) 採点用のエンドポイントで、学生が使うことを想定していない。
-    """
-    # 課題エントリが無い場合は、404エラーを返す
-    problem_entry = assignments.get_problem_recursive(
-        db=db,
-        lecture_id=lecture_id,
-        assignment_id=assignment_id,
-        for_evaluation=True,
+        for_evaluation=evaluation,
     )
     if problem_entry is None:
         raise HTTPException(
@@ -290,11 +292,10 @@ async def single_judge(
         user_id=current_user.user_id,
         lecture_id=lecture_id,
         assignment_id=assignment_id,
-        for_evaluation=True,
+        for_evaluation=evaluation,
     )
 
     # アップロードされたファイルを/upload/{submission_id}に配置する
-    # それと同時にUploadedFilesテーブルに登録する
     upload_dir = Path(constant.UPLOAD_DIR) / str(submission_record.id)
     if upload_dir.exists():
         shutil.rmtree(upload_dir)
@@ -306,6 +307,7 @@ async def single_judge(
             dest_path = upload_dir / file.filename
             with open(dest_path, "wb") as dest_file:
                 shutil.copyfileobj(source_file, dest_file)
+            # アップロードされたファイルをUploadedFilesテーブルに登録する
             assignments.register_uploaded_file(
                 db=db, submission_id=submission_record.id, path=dest_path
             )
@@ -317,10 +319,12 @@ async def single_judge(
     return submission_record
 
 
-@router.post("/private/judge/{lecture_id}")
+@router.post("/{lecture_id}/batch")
 async def batch_judge(
     zip_file: UploadFile,
     lecture_id: int,
+    open: bool,  # 公開期間内かどうか
+    evaluation: bool,  # 評価問題かどうか
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
@@ -332,7 +336,10 @@ async def batch_judge(
 
     注) 採点用のエンドポイントで、学生が使うことを想定していない。
     """
-    # 授業エントリが無い場合は、404エラーを返す
+    ############################### Vital #####################################
+    access_sanitize(open=open, evaluation=evaluation, role=current_user.role)
+    ############################### Vital #####################################
+
     lecture_entry = assignments.get_lecture(db, lecture_id)
     if lecture_entry is None:
         raise HTTPException(
@@ -340,11 +347,21 @@ async def batch_judge(
             detail="授業エントリが見つかりません",
         )
 
-    # lecture_idに紐づいたProblemRecordのリストを取得する
-    problem_list = assignments.get_problem_list(db, lecture_id)
+    if open is True and not lecture_is_public(lecture_entry):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが公開期間内ではありません",
+        )
+    elif open is False and lecture_is_public(lecture_entry):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが公開期間外ではありません",
+        )
 
-    # for_evaluationがTrueのProblemRecordのリストを抽出する
-    problem_list = [problem for problem in problem_list if problem.for_evaluation]
+    # lecture_idに紐づいたProblemRecordのリストを取得する
+    problem_list = assignments.get_problem_list(
+        db, lecture_id, for_evaluation=evaluation
+    )
 
     # 各Problemエントリに対応する、要求されているファイルのリストを取得する
     required_files_for_problem: list[list[str]] = []
@@ -467,8 +484,8 @@ async def batch_judge(
     return batch_submission_record
 
 
-@router.get("/public/status/me/submissions/{submission_id}")
-async def read_format_check_status_for_student(
+@router.get("/status/submissions/{submission_id}")
+async def read_submission_status(
     submission_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
@@ -477,7 +494,7 @@ async def read_format_check_status_for_student(
     ],
 ) -> schemas.SubmissionRecord:
     """
-    ログインユーザの、特定のフォーマットチェック提出の進捗状況を取得する
+    特定の提出の進捗状況を取得する
     """
     submission_record = assignments.get_submission(db, submission_id)
     if submission_record is None:
@@ -486,22 +503,33 @@ async def read_format_check_status_for_student(
             detail="提出エントリが見つかりません",
         )
 
-    #
-    if (
-        submission_record.batch_id is not None
-        or submission_record.user_id != current_user.user_id
-        or submission_record.for_evaluation
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="アクセスできません",
-        )
+    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
+        # ユーザがAdmin, Managerでない場合は、ログインユーザの提出のみ取得できる
+        if submission_record.user_id != current_user.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="ログインユーザの提出ではありません",
+            )
+
+        # バッチ採点に紐づいた提出は取得できない
+        if submission_record.batch_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="バッチ採点に紐づいた提出は取得できません",
+            )
+
+        # 評価問題の提出は取得できない
+        if submission_record.for_evaluation:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="評価問題の提出は取得できません",
+            )
 
     return submission_record
 
 
-@router.get("/public/status/me/submissions")
-async def read_all_format_check_status_for_student(
+@router.get("/status/submissions/me")
+async def read_all_submission_status_of_me(
     page: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
@@ -510,23 +538,27 @@ async def read_all_format_check_status_for_student(
     ],
 ) -> List[schemas.SubmissionRecord]:
     """
-    学生が提出した全てのシングルジャッジの進捗状況を取得する
+    自身に紐づいた提出の進捗状況を取得する
+    
+    学生が自身の提出の進捗状況を確認するために使うことを想定している
     """
     if page < 1:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ページは1以上である必要があります",
         )
+
     submission_record_list = assignments.get_submission_list_for_student(
         db, current_user.user_id, limit=20, offset=(page - 1) * 20
     )
+
     return submission_record_list
 
 
 # バッチ採点に関しては、ManagerとAdminが全てのバッチ採点の進捗状況を見れるようにしている。
 
 
-@router.get("/private/status/batch/{batch_id}")
+@router.get("/status/batch/{batch_id}")
 async def read_batch_status(
     batch_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -548,7 +580,7 @@ async def read_batch_status(
     return assignments.get_submission_list_for_batch(db, batch_id)
 
 
-@router.get("/private/status/batch")
+@router.get("/status/batch")
 async def read_all_batch_status(
     page: int,
     db: Annotated[Session, Depends(get_db)],
@@ -572,10 +604,8 @@ async def read_all_batch_status(
 # ジャッジ結果を取得するエンドポイント
 # schemas.SubmissionSummaryRecordを返す
 
-
-# 学生用
-@router.get("/public/result/me/submissions/{submission_id}")
-async def read_submission_summary_for_format_check(
+@router.get("/result/submissions/{submission_id}")
+async def read_submission_summary(
     submission_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
@@ -584,7 +614,7 @@ async def read_submission_summary_for_format_check(
     ],
 ) -> schemas.SubmissionSummaryRecord:
     """
-    ログインユーザの、特定のシングルジャッジのジャッジ結果を取得する
+    特定の提出のジャッジ結果を取得する
     """
     submission_record = assignments.get_submission(db, submission_id)
     if submission_record is None:
@@ -592,75 +622,103 @@ async def read_submission_summary_for_format_check(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="提出エントリが見つかりません",
         )
+    
+    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
+        # ユーザがAdmin, Managerでない場合は、ログインユーザのジャッジ結果のみ取得できる
+        if submission_record.user_id != current_user.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="ログインユーザのジャッジ結果のみ取得できます",
+            )
+        
+        # バッチ採点に紐づいた提出は取得できない
+        if submission_record.batch_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="バッチ採点に紐づいた提出は取得できません",
+            )
+        
+        # 評価問題の提出は取得できない
+        if submission_record.for_evaluation:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="評価問題の提出は取得できません",
+            )
 
-    if (
-        submission_record.batch_id is not None
-        or submission_record.user_id != current_user.user_id
-        or submission_record.for_evaluation
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="アクセスできません",
-        )
-
-    return assignments.get_submission_summary(db, submission_id)
-
-
-# 採点者用(全員で共有する)
-@router.get("/private/result/submissions/{submission_id}")
-async def read_submission_summary_for_judge(
-    submission_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[
-        schemas.UserRecord,
-        Security(authenticate_util.get_current_active_user, scopes=["batch"]),
-    ],
-) -> schemas.SubmissionSummaryRecord:
-    """
-    採点用の提出エントリのジャッジ結果を取得する
-    """
     submission_summary = assignments.get_submission_summary(db, submission_id)
     if submission_summary is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="提出エントリが見つかりません",
+            detail="提出エントリのジャッジ結果が見つかりません",
         )
 
     return submission_summary
 
 
-@router.get("/private/result/submissions")
-async def read_all_submission_summary_for_judge(
-    page: int,
+@router.get("/result/submissions/{submission_id}/detail")
+async def read_submission_summary_detail(
+    submission_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
-        Security(authenticate_util.get_current_active_user, scopes=["batch"]),
+        Security(authenticate_util.get_current_active_user, scopes=["me"]),
     ],
-) -> List[schemas.SubmissionSummaryRecord]:
+) -> schemas.SubmissionSummaryRecord:
     """
-    全ての採点用の提出エントリのジャッジ結果を取得する
+    特定の提出のジャッジ結果とその詳細を取得する
     """
-    if page < 1:
+    submission_record = assignments.get_submission(db, submission_id)
+    if submission_record is None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="ページは1以上である必要があります",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="提出エントリが見つかりません",
+        )
+    
+    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
+        # ユーザがAdmin, Managerでない場合は、ログインユーザのジャッジ結果のみ取得できる
+        if submission_record.user_id != current_user.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="ログインユーザのジャッジ結果のみ取得できます",
+            )
+        
+        # バッチ提出に紐づいた提出は取得できない
+        if submission_record.batch_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="バッチ提出に紐づいた提出は取得できません",
+            )
+        
+        # 評価問題の提出は取得できない
+        if submission_record.for_evaluation:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="評価問題の提出は取得できません",
+            )
+
+    submission_summary = assignments.get_submission_summary_detail(db, submission_id)
+    if submission_summary is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="提出エントリのジャッジ結果が見つかりません",
         )
 
-    return assignments.get_all_submission_summary(db, limit=20, offset=(page - 1) * 20)
+    return submission_summary
 
 
-@router.get("/private/evaluate/result/batch/{batch_id}")
-async def read_batch_submission_summary_for_judge(
+@router.get("/result/batch/{batch_id}", response_model=Dict[int, schemas.SubmissionSummaryRecord | None])
+async def read_submission_summary_list_for_batch(
     batch_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> List[schemas.SubmissionSummaryRecord]:
+) -> Dict[int, schemas.SubmissionSummaryRecord | None]:
     """
     特定のバッチ採点のジャッジ結果を取得する
+    
+    詳細は(テストケース毎にかかった時間、メモリ使用量など)取得しない、全体の結果のみ取得される
     """
     batch_submission_record = assignments.get_batch_submission(db, batch_id)
     if batch_submission_record is None:
@@ -673,9 +731,9 @@ async def read_batch_submission_summary_for_judge(
     submission_entry_list = assignments.get_submission_list_for_batch(db, batch_id)
 
     # 各提出エントリのジャッジ結果を取得する
-    submission_summary_list = [
-        assignments.get_submission_summary(db, submission_entry.id)
+    submission_summary_list = {
+        submission_entry.id: assignments.get_submission_summary(db, submission_entry.id)
         for submission_entry in submission_entry_list
-    ]
+    }
 
     return submission_summary_list
