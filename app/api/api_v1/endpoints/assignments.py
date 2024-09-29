@@ -27,13 +27,13 @@ router = APIRouter()
 
 
 # 授業エントリに紐づくデータ(授業エントリ、課題エントリ、評価項目、テストケース)が公開期間内かどうかを確認する
-async def lecture_is_public(lecture_entry: schemas.LectureRecord) -> bool:
+def lecture_is_public(lecture_entry: schemas.LectureRecord) -> bool:
     return authenticate_util.is_past(
         lecture_entry.start_date
     ) and authenticate_util.is_future(lecture_entry.end_date)
 
 
-async def access_sanitize(
+def access_sanitize(
     open: bool | None = None,  # 公開期間内かどうか
     evaluation: bool | None = None,  # 評価問題かどうか
     role: schemas.Role | None = None,  # ユーザのロール
@@ -82,7 +82,6 @@ async def read_(
 @router.get("/{lecture_id}", response_model=List[schemas.ProblemRecord])
 async def read_problems(
     lecture_id: int,
-    open: bool,  # 公開期間内かどうか
     evaluation: bool,  # 評価問題かどうか
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
@@ -94,7 +93,7 @@ async def read_problems(
     授業エントリに紐づく練習問題のリストを取得する
     """
     ############################### Vital #####################################
-    access_sanitize(open=open, evaluation=evaluation, role=current_user.role)
+    access_sanitize(evaluation=evaluation, role=current_user.role)
     ############################### Vital #####################################
     lecture_entry = assignments.get_lecture(db, lecture_id)
     if lecture_entry is None:
@@ -102,17 +101,13 @@ async def read_problems(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="授業エントリが見つかりません",
         )
-
-    if open is True and not lecture_is_public(lecture_entry):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが公開期間内ではありません",
-        )
-    elif open is False and lecture_is_public(lecture_entry):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが公開期間外ではありません",
-        )
+    
+    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
+        if not lecture_is_public(lecture_entry):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="授業エントリが公開期間内ではありません",
+            )
 
     problem_list = assignments.get_problem_list(
         db, lecture_id, for_evaluation=evaluation
@@ -124,7 +119,6 @@ async def read_problems(
 async def read_problem(
     lecture_id: int,
     assignment_id: int,
-    open: bool,  # 公開期間内かどうか
     evaluation: bool,  # 評価問題かどうか
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
@@ -136,7 +130,7 @@ async def read_problem(
     授業エントリに紐づく練習問題のエントリを取得する
     """
     ############################### Vital #####################################
-    access_sanitize(open=open, evaluation=evaluation, role=current_user.role)
+    access_sanitize(evaluation=evaluation, role=current_user.role)
     ############################### Vital #####################################
 
     lecture_entry = assignments.get_lecture(db, lecture_id)
@@ -145,17 +139,13 @@ async def read_problem(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="授業エントリが見つかりません",
         )
-
-    if open is True and not lecture_is_public(lecture_entry):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが公開期間内ではありません",
-        )
-    elif open is False and lecture_is_public(lecture_entry):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが公開期間外ではありません",
-        )
+    
+    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
+        if not lecture_is_public(lecture_entry):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="授業エントリが公開期間内ではありません",
+            )
 
     problem_entry = assignments.get_problem_recursive(
         db=db,
@@ -178,7 +168,6 @@ async def read_problem(
 async def read_problem_description(
     lecture_id: int,
     assignment_id: int,
-    open: bool,  # 公開期間内かどうか
     evaluation: bool,  # 評価問題かどうか
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
@@ -190,8 +179,23 @@ async def read_problem_description(
     授業エントリに紐づく練習問題の説明を取得する
     """
     ############################### Vital #####################################
-    access_sanitize(open=open, evaluation=evaluation, role=current_user.role)
+    access_sanitize(evaluation=evaluation, role=current_user.role)
     ############################### Vital #####################################
+    
+    lecture_entry = assignments.get_lecture(db, lecture_id)
+    if lecture_entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが見つかりません",
+        )
+    
+    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
+        if not lecture_is_public(lecture_entry):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="授業エントリが公開期間内ではありません",
+            )
+    
     problem_entry = assignments.get_problem(
         db=db,
         lecture_id=lecture_id,
@@ -202,24 +206,6 @@ async def read_problem_description(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="課題エントリが見つかりません",
-        )
-
-    lecture_entry = assignments.get_lecture(db, lecture_id)
-    if lecture_entry is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが見つかりません",
-        )
-
-    if open is True and not lecture_is_public(lecture_entry):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが公開期間内ではありません",
-        )
-    elif open is False and lecture_is_public(lecture_entry):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが公開期間外ではありません",
         )
 
     # problem_entry.description_pathのファイルの内容を読み込む
@@ -239,7 +225,6 @@ async def single_judge(
     file_list: list[UploadFile],
     lecture_id: int,
     assignment_id: int,
-    open: bool,  # 公開期間内かどうか
     evaluation: bool,  # 評価問題かどうか
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
@@ -251,7 +236,7 @@ async def single_judge(
     単体の採点リクエストを受け付ける
     """
     ############################### Vital #####################################
-    access_sanitize(open=open, evaluation=evaluation, role=current_user.role)
+    access_sanitize(evaluation=evaluation, role=current_user.role)
     ############################### Vital #####################################
 
     lecture_entry = assignments.get_lecture(db, lecture_id)
@@ -260,17 +245,13 @@ async def single_judge(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="授業エントリが見つかりません",
         )
-
-    if open is True and not lecture_is_public(lecture_entry):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが公開期間内ではありません",
-        )
-    elif open is False and lecture_is_public(lecture_entry):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが公開期間外ではありません",
-        )
+        
+    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
+        if not lecture_is_public(lecture_entry):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="授業エントリが公開期間内ではありません",
+            )
 
     # 課題エントリ(lecture_id, assignment_id, for_evaluation=False)を取得する
     problem_entry = assignments.get_problem_recursive(
@@ -323,7 +304,6 @@ async def single_judge(
 async def batch_judge(
     zip_file: UploadFile,
     lecture_id: int,
-    open: bool,  # 公開期間内かどうか
     evaluation: bool,  # 評価問題かどうか
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
@@ -337,7 +317,7 @@ async def batch_judge(
     注) 採点用のエンドポイントで、学生が使うことを想定していない。
     """
     ############################### Vital #####################################
-    access_sanitize(open=open, evaluation=evaluation, role=current_user.role)
+    access_sanitize(evaluation=evaluation, role=current_user.role)
     ############################### Vital #####################################
 
     lecture_entry = assignments.get_lecture(db, lecture_id)
@@ -347,16 +327,12 @@ async def batch_judge(
             detail="授業エントリが見つかりません",
         )
 
-    if open is True and not lecture_is_public(lecture_entry):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが公開期間内ではありません",
-        )
-    elif open is False and lecture_is_public(lecture_entry):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="授業エントリが公開期間外ではありません",
-        )
+    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
+        if not lecture_is_public(lecture_entry):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="授業エントリが公開期間内ではありません",
+            )
 
     # lecture_idに紐づいたProblemRecordのリストを取得する
     problem_list = assignments.get_problem_list(
