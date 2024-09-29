@@ -217,7 +217,7 @@ async def read_problem_description(
         )
     with open(description_path, "r") as f:
         description = f.read()
-    return schemas.TextDataResponse(data=description)
+    return schemas.TextDataResponse(text=description)
 
 
 @router.post("/{lecture_id}/{assignment_id}/judge")

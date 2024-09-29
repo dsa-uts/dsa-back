@@ -420,7 +420,7 @@ class TokenValidateResponse(BaseModel):
 
 
 class TextDataResponse(BaseModel):
-    data: str
+    text: str
 
 class File:
     file_path: str
