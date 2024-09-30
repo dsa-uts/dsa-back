@@ -268,6 +268,8 @@ class EvaluationSummaryRecord(BaseModel):
     message: str | None
     detail: str | None
     score: int
+    timeMS: int = Field(default=0)
+    memoryKB: int = Field(default=0)
     # 外部キー関係ではないけどEvaluationItemsやArrangedFilesから取ってくる値
     eval_title: str  # EvaluationItems.title
     eval_description: str | None  # EvaluationItems.description
@@ -299,6 +301,8 @@ class SubmissionSummaryRecord(BaseModel):
     message: str | None
     detail: str | None
     score: int
+    timeMS: int = Field(default=0)
+    memoryKB: int = Field(default=0)
     # 以降、クライアントで必要になるフィールド
     evaluation_summary_list: list[EvaluationSummaryRecord] = Field(default_factory=list)
 
@@ -421,6 +425,25 @@ class TokenValidateResponse(BaseModel):
 
 class TextDataResponse(BaseModel):
     text: str
+
+
+# 提出の進捗状況と結果を取得するためのスキーマ
+class JudgeProgressAndStatus(BaseModel):
+    id: int  # submission.id
+    ts: datetime  # submission.ts
+    user_id: str  # submission.user_id
+    lecture_id: int  # submission.lecture_id
+    assignment_id: int  # submission.assignment_id
+    for_evaluation: bool  # submission.for_evaluation
+    progress: SubmissionProgressStatus  # submission.progress
+    completed_task: int  # submission.completed_task
+    total_task: int  # submission.total_task
+    result: SubmissionSummaryStatus | None
+    message: str | None
+    score: int | None
+    timeMS: int | None
+    memoryKB: int | None
+
 
 class File:
     file_path: str

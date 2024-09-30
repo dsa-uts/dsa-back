@@ -510,7 +510,7 @@ async def read_all_submission_status_of_me(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["me"]),
     ],
-) -> List[schemas.SubmissionRecord]:
+) -> List[schemas.JudgeProgressAndStatus]:
     """
     自身に紐づいた提出の進捗状況を取得する
     
@@ -526,7 +526,29 @@ async def read_all_submission_status_of_me(
         db, current_user.user_id, limit=20, offset=(page - 1) * 20
     )
 
-    return submission_record_list
+    judge_progress_and_status_list = []
+    for submission_record in submission_record_list:
+        judge_progress_and_status = schemas.JudgeProgressAndStatus(
+            **submission_record.model_dump(),
+            result=None,
+            message=None,
+            score=None,
+            timeMS=None,
+            memoryKB=None,
+        )
+        if submission_record.progress == schemas.SubmissionProgressStatus.DONE:
+            submission_summary = assignments.get_submission_summary(
+                db, submission_record.id
+            )
+            if submission_summary is not None:
+                judge_progress_and_status.result = submission_summary.result
+                judge_progress_and_status.message = submission_summary.message
+                judge_progress_and_status.score = submission_summary.score
+                judge_progress_and_status.timeMS = submission_summary.timeMS
+                judge_progress_and_status.memoryKB = submission_summary.memoryKB
+        judge_progress_and_status_list.append(judge_progress_and_status)
+
+    return judge_progress_and_status_list
 
 
 @router.get("/status/submissions/all")
@@ -537,10 +559,10 @@ async def read_all_submission_status(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["view_users"]),
     ],
-) -> List[schemas.SubmissionRecord]:
+) -> List[schemas.JudgeProgressAndStatus]:
     """
     全ての提出の進捗状況を取得する
-    
+
     管理者が全ての提出の進捗状況を確認するために使うことを想定している
     """
     if page < 1:
@@ -548,18 +570,39 @@ async def read_all_submission_status(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="ページは1以上である必要があります",
         )
-    
+
     if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="管理者のみが全ての提出の進捗状況を取得できます",
         )
-    
+
     submission_record_list = assignments.get_submission_list(
         db, limit=20, offset=(page - 1) * 20
     )
+    judge_progress_and_status_list = []
+    for submission_record in submission_record_list:
+        judge_progress_and_status = schemas.JudgeProgressAndStatus(
+            **submission_record.model_dump(),
+            result=None,
+            message=None,
+            score=None,
+            timeMS=None,
+            memoryKB=None,
+        )
+        if submission_record.progress == schemas.SubmissionProgressStatus.DONE:
+            submission_summary = assignments.get_submission_summary(
+                db, submission_record.id
+            )
+            if submission_summary is not None:
+                judge_progress_and_status.result = submission_summary.result
+                judge_progress_and_status.message = submission_summary.message
+                judge_progress_and_status.score = submission_summary.score
+                judge_progress_and_status.timeMS = submission_summary.timeMS
+                judge_progress_and_status.memoryKB = submission_summary.memoryKB
+        judge_progress_and_status_list.append(judge_progress_and_status)
 
-    return submission_record_list
+    return judge_progress_and_status_list
 
 
 @router.get("/status/submissions/{submission_id}")
@@ -570,7 +613,7 @@ async def read_submission_status(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["me"]),
     ],
-) -> schemas.SubmissionRecord:
+) -> schemas.JudgeProgressAndStatus:
     """
     特定の提出の進捗状況を取得する
     """
@@ -603,7 +646,27 @@ async def read_submission_status(
                 detail="評価問題の提出は取得できません",
             )
 
-    return submission_record
+    judge_progress_and_status = schemas.JudgeProgressAndStatus(
+        **submission_record.model_dump(),
+        result=None,
+        message=None,
+        score=None,
+        timeMS=None,
+        memoryKB=None,
+    )
+
+    if submission_record.progress == schemas.SubmissionProgressStatus.DONE:
+        submission_summary = assignments.get_submission_summary(
+            db, submission_record.id
+        )
+        if submission_summary is not None:
+            judge_progress_and_status.result = submission_summary.result
+            judge_progress_and_status.message = submission_summary.message
+            judge_progress_and_status.score = submission_summary.score
+            judge_progress_and_status.timeMS = submission_summary.timeMS
+            judge_progress_and_status.memoryKB = submission_summary.memoryKB
+
+    return judge_progress_and_status
 
 
 # バッチ採点に関しては、ManagerとAdminが全てのバッチ採点の進捗状況を見れるようにしている。
