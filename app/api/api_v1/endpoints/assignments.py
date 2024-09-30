@@ -220,6 +220,48 @@ async def read_problem_description(
     return schemas.TextDataResponse(text=description)
 
 
+@router.get("/{lecture_id}/{assignment_id}/required-files")
+async def read_required_files(
+    lecture_id: int,
+    assignment_id: int,
+    evaluation: bool,  # 評価問題かどうか
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        schemas.UserRecord,
+        Security(authenticate_util.get_current_active_user, scopes=["me"]),
+    ],
+) -> List[str]:
+    """
+    授業エントリに紐づく練習問題のリストを取得する
+    """
+    ############################### Vital #####################################
+    access_sanitize(evaluation=evaluation, role=current_user.role)
+    ############################### Vital #####################################
+
+    lecture_entry = assignments.get_lecture(db, lecture_id)
+    if lecture_entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが見つかりません",
+        )
+    
+    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
+        if not lecture_is_public(lecture_entry):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="授業エントリが公開期間内ではありません",
+            )
+    
+    # 必要なファイルのリストを取得する
+    required_files = assignments.get_required_files(
+        db=db,
+        lecture_id=lecture_id,
+        assignment_id=assignment_id,
+        for_evaluation=evaluation,
+    )
+    return required_files
+
+
 @router.post("/{lecture_id}/{assignment_id}/judge")
 async def single_judge(
     file_list: list[UploadFile],
