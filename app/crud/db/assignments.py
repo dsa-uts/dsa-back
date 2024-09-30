@@ -270,6 +270,25 @@ def register_evaluation_result(
     db.commit()
 
 
+def get_submission_list(
+    db: Session, limit: int = 10, offset: int = 0
+) -> List[schemas.SubmissionRecord]:
+    """
+    全ての提出の進捗状況を取得する関数
+    """
+    submission_list = (
+        db.query(models.Submission)
+        .order_by(models.Submission.id.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+    return [
+        schemas.SubmissionRecord.model_validate(submission)
+        for submission in submission_list
+    ]
+
+
 def get_submission_list_for_student(
     db: Session, user_id: str, limit: int = 10, offset: int = 0
 ) -> List[schemas.SubmissionRecord]:
@@ -345,7 +364,7 @@ def get_submission_list_for_batch(
         schemas.SubmissionRecord.model_validate(submission)
         for submission in submission_list
     ]
-    
+
 
 def get_submission_summary(
     db: Session, submission_id: int
