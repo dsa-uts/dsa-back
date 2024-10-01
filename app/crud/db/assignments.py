@@ -164,7 +164,7 @@ def get_required_files(
     return [file.name for file in required_files]
 
 
-def get_arranged_filepaths(
+def get_arranged_files(
     db: Session, lecture_id: int, assignment_id: int, for_evaluation: bool
 ) -> list[schemas.ArrangedFileRecord]:
     """
@@ -430,3 +430,43 @@ def get_submission_summary_detail(
         ]
 
     return submission_summary_record
+
+
+def get_uploaded_file(
+    db: Session, file_id: int
+) -> schemas.UploadedFileRecord | None:
+    """
+    特定のアップロードファイルエントリを取得する関数
+    """
+    uploaded_file = (
+        db.query(models.UploadedFiles).filter(models.UploadedFiles.id == file_id).first()
+    )
+    return schemas.UploadedFileRecord.model_validate(uploaded_file) if uploaded_file is not None else None
+
+
+def get_uploaded_files(
+    db: Session, submission_id: int
+) -> List[schemas.UploadedFileRecord]:
+    """
+    特定の提出エントリに紐づいたアップロードファイルのリストを取得する関数
+    """
+    uploaded_files = (
+        db.query(models.UploadedFiles).filter(models.UploadedFiles.submission_id == submission_id).all()
+    )
+    return [schemas.UploadedFileRecord.model_validate(uploaded_file) for uploaded_file in uploaded_files]
+
+
+def get_arranged_file(
+    db: Session, file_id: str
+) -> schemas.ArrangedFileRecord | None:
+    """
+    特定のアレンジされたファイルエントリを取得する関数
+    """
+    arranged_file = (
+        db.query(models.ArrangedFiles).filter(models.ArrangedFiles.str_id == file_id).first()
+    )
+    return (
+        schemas.ArrangedFileRecord.model_validate(arranged_file)
+        if arranged_file is not None
+        else None
+    )

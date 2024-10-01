@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, field_serializer
 from datetime import datetime
-from typing import List, Optional, Union, Dict, Any
+from typing import List, Optional, Union, Dict, Any, Literal
 from enum import Enum
 from . import models
 import os
@@ -443,6 +443,39 @@ class JudgeProgressAndStatus(BaseModel):
     score: int | None
     timeMS: int | None
     memoryKB: int | None
+
+
+# アップロードされたファイルのリスト、およびアレンジされたファイルのリストを取得するためのスキーマ
+class FileRecord(BaseModel):
+    name: str # ファイル名
+    type: Literal["uploaded", "arranged"] # ファイルの種類
+    url: str | None = Field(default=None) # ファイルのURL(テキストデータでない場合)
+    text: str | None = Field(default=None) # ファイルのテキストデータ(テキストデータの場合)
+    
+
+class ArrangedFileRecord(BaseModel):
+    str_id: str
+    lecture_id: int
+    assignment_id: int
+    for_evaluation: bool
+    path: str
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+
+class UploadedFileRecord(BaseModel):
+    id: int
+    ts: datetime
+    submission_id: int
+    path: str
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
 
 
 class File:
