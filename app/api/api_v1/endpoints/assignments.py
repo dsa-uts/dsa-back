@@ -370,8 +370,8 @@ async def single_judge(
         for_evaluation=evaluation,
     )
 
-    # アップロードされたファイルを/upload/{submission_id}に配置する
-    upload_dir = Path(constant.UPLOAD_DIR) / str(submission_record.id)
+    # アップロードされたファイルを/upload/{submission_record.ts}-{submission_id}に配置する
+    upload_dir = Path(constant.UPLOAD_DIR) / f"{submission_record.ts.strftime('%Y-%m-%d-%H-%M-%S')}-{submission_record.id}"
     if upload_dir.exists():
         shutil.rmtree(upload_dir)
 
@@ -499,7 +499,7 @@ async def batch_judge(
                 )
 
                 # アップロード先
-                upload_dir = Path(constant.UPLOAD_DIR) / str(submission_record.id)
+                upload_dir = Path(constant.UPLOAD_DIR) / f"{submission_record.ts.strftime('%Y-%m-%d-%H-%M-%S')}-{submission_record.id}"
                 if upload_dir.exists():
                     shutil.rmtree(upload_dir)
 
