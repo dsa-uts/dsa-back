@@ -147,6 +147,52 @@ async def read_problem(
                 detail="授業エントリが公開期間内ではありません",
             )
 
+    problem_entry = assignments.get_problem(
+        db=db,
+        lecture_id=lecture_id,
+        assignment_id=assignment_id,
+        for_evaluation=evaluation,
+    )
+    if problem_entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="課題エントリが見つかりません",
+        )
+    return problem_entry
+
+
+@router.get("/{lecture_id}/{assignment_id}/detail", response_model=schemas.ProblemRecord)
+async def read_problem_detail(
+    lecture_id: int,
+    assignment_id: int,
+    evaluation: bool,  # 評価問題かどうか
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        schemas.UserRecord,
+        Security(authenticate_util.get_current_active_user, scopes=["me"]),
+    ],
+) -> schemas.ProblemRecord:
+    """
+    授業エントリに紐づく練習問題のエントリの詳細(評価項目、テストケース)を取得する
+    """
+    ############################### Vital #####################################
+    access_sanitize(evaluation=evaluation, role=current_user.role)
+    ############################### Vital #####################################
+
+    lecture_entry = assignments.get_lecture(db, lecture_id)
+    if lecture_entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが見つかりません",
+        )
+    
+    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
+        if not lecture_is_public(lecture_entry):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="授業エントリが公開期間内ではありません",
+            )
+
     problem_entry = assignments.get_problem_recursive(
         db=db,
         lecture_id=lecture_id,
