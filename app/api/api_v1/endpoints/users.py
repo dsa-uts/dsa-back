@@ -19,7 +19,10 @@ from app.api.api_v1.endpoints import authenticate_util
 from app.classes import schemas
 from datetime import timedelta
 from app.crud.db import users as crud_users
-
+from fastapi.responses import FileResponse
+from datetime import datetime
+from app import constants as constant
+from pathlib import Path
 logging.basicConfig(level=logging.DEBUG)
 
 router = APIRouter()
@@ -86,7 +89,7 @@ async def register_multiple_users(
     current_user: Annotated[
         schemas.UserRecord, Security(authenticate_util.get_current_user, scopes=["account"])
     ],
-) -> schemas.Message:
+) -> FileResponse:
     if upload_file.filename.endswith(".csv"):
         df = pd.read_csv(upload_file.file)
     elif upload_file.filename.endswith(".xlsx"):
@@ -141,13 +144,16 @@ async def register_multiple_users(
         except Exception as e:
             error_messages.append(f"Error creating user {row['user_id']}: {str(e)}")
 
+    # updateしたdfをcsvに出力、{RESOURCE_DIR}/users/{YYYY-MM-DD-HH-MM-SS}.csv
+    # ファイル名は、現在時刻をフォーマットしたものとする
+    file_path = Path(constant.RESOURCE_DIR) / "users" / f"{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.csv"
+    df.to_csv(file_path, index=False)
+
     # Return the updated file to the client
-    return schemas.Message(
-        message="user registrations done.", error_messages=error_messages
-    )
+    return FileResponse(file_path)
 
 
-@router.get("/all", response_model=List[schemas.UserRecord])
+@router.get("/all", response_model=List[schemas.UserView])
 async def get_users_list(
     db: Annotated[Session, Depends(get_db)],
     # current_userが使われることはないが、view_usersというスコープを持つユーザー(admin, manager)のみがこのAPIを利用できるようにするために必要
@@ -156,7 +162,7 @@ async def get_users_list(
     ],
 ):
     # パスワードを除外して返す
-    return [user.model_dump(exclude={"hashed_password"}) for user in users.get_users(db=db)]
+    return [schemas.UserView.model_validate(user.model_dump(exclude={"hashed_password"})) for user in crud_users.get_users(db=db)]
 
 
 @router.post("/delete")
@@ -169,7 +175,16 @@ async def delete_users(
     ],
 ):
     try:
-        await users.delete_users(db=db, user_ids=user_ids.user_ids)
+        # adminのユーザは削除できないようにする
+        for user_id in user_ids.user_ids:
+            # ユーザレコード取得
+            user_record = crud_users.get_user(db=db, user_id=user_id)
+            if user_record.role is schemas.Role.admin:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="adminユーザは削除できません"
+                )
+        await crud_users.delete_users(db=db, user_ids=user_ids.user_ids)
         return {"msg": "ユーザーが正常に削除されました。"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

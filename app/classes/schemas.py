@@ -381,7 +381,7 @@ class UserCreate(BaseModel):
 
 
 class UserDelete(BaseModel):
-    user_ids: List[int]
+    user_ids: List[str]
 
 
 class Token(BaseModel):
@@ -476,6 +476,18 @@ class UploadedFileRecord(BaseModel):
         # sqlalchemyのレコードデータからマッピングするための設定
         "from_attributes": True
     }
+
+
+class UserView(BaseModel):
+    user_id: str
+    username: str
+    email: str
+    role: Role
+    disabled: bool
+    created_at: datetime
+    updated_at: datetime
+    active_start_date: datetime
+    active_end_date: datetime
 
 
 class File:
