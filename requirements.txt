@@ -4,9 +4,9 @@ PyMySQL==1.1.0
 sqlalchemy==2.0.29
 cryptography==42.0.5
 pytz==2024.1
-python-multipart==0.0.9
-python-jose==3.3.0
-passlib==1.7.4
+python-multipart==0.0.10
+PyJWT==2.9.0
+passlib[bcrypt]==1.7.4
 python-dotenv==1.0.1
 rarfile==4.2
 py7zr==0.21.0

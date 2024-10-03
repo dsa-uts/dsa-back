@@ -1,6 +1,7 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_serializer
 from datetime import datetime
-from typing import List, Optional, Union, Dict, Any
+from typing import List, Optional, Union, Dict, Any, Literal
+from enum import Enum
 from . import models
 import os
 from ..crud import file_operation
@@ -11,194 +12,482 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 
 
-class SubAssignmentBase(BaseModel):
+class Message(BaseModel):
+    message: str
+
+    model_config = {"extra": "allow"}
+
+
+class SubmissionProgressStatus(Enum):
+    PENDING = "pending"
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+
+
+# 実行結果の集約をするための、順序定義
+# 各テストケースの実行結果が、["AC", "WA", "AC", "TLE"]の場合、
+# 全体の結果はmaxを取って"TLE"となる。
+JudgeStatusOrder: Dict[str, int] = {
+    # (value) : (order)
+    "AC": 0,  # Accepted
+    "WA": 1,  # Wrong Answer
+    "TLE": 2,  # Time Limit Exceed
+    "MLE": 3,  # Memory Limit Exceed
+    "RE": 4,  # Runtime Error
+    "CE": 5,  # Compile Error
+    "OLE": 6,  # Output Limit Exceed (8000 bytes)
+    "IE": 7,  # Internal Error (e.g., docker sandbox management)
+    "FN": 8,  # File Not found
+}
+
+
+class BaseJudgeStatusWithOrder(Enum):
+    def __str__(self):
+        return self.name
+
+    def __lt__(self, other):
+        if self.__class__ is other.__class__:
+            return JudgeStatusOrder[self.value] < JudgeStatusOrder[other.value]
+        return NotImplemented
+
+    def __gt__(self, other):
+        if self.__class__ is other.__class__:
+            return JudgeStatusOrder[self.value] > JudgeStatusOrder[other.value]
+        return NotImplemented
+
+    def __le__(self, other):
+        if self.__class__ is other.__class__:
+            return JudgeStatusOrder[self.value] <= JudgeStatusOrder[other.value]
+        return NotImplemented
+
+    def __ge__(self, other):
+        if self.__class__ is other.__class__:
+            return JudgeStatusOrder[self.value] >= JudgeStatusOrder[other.value]
+        return NotImplemented
+
+
+class SingleJudgeStatus(BaseJudgeStatusWithOrder):
+    AC = "AC"  # Accepted
+    WA = "WA"  # Wrong Answer
+    TLE = "TLE"  # Time Limit Exceed
+    MLE = "MLE"  # Memory Limit Exceed
+    RE = "RE"  # Runtime Error
+    CE = "CE"  # Compile Error
+    OLE = "OLE"  # Output Limit Exceed (8000 bytes)
+    IE = "IE"  # Internal Error (e.g., docker sandbox management)
+
+
+class EvaluationSummaryStatus(BaseJudgeStatusWithOrder):
+    AC = "AC"  # Accepted
+    WA = "WA"  # Wrong Answer
+    TLE = "TLE"  # Time Limit Exceed
+    MLE = "MLE"  # Memory Limit Exceed
+    RE = "RE"  # Runtime Error
+    CE = "CE"  # Compile Error
+    OLE = "OLE"  # Output Limit Exceed (8000 bytes)
+    IE = "IE"  # Internal Error (e.g., docker sandbox management)
+
+
+class SubmissionSummaryStatus(BaseJudgeStatusWithOrder):
+    AC = "AC"  # Accepted
+    WA = "WA"  # Wrong Answer
+    TLE = "TLE"  # Time Limit Exceed
+    MLE = "MLE"  # Memory Limit Exceed
+    RE = "RE"  # Runtime Error
+    CE = "CE"  # Compile Error
+    OLE = "OLE"  # Output Limit Exceed (8000 bytes)
+    IE = "IE"  # Internal Error (e.g., docker sandbox management)
+    FN = "FN"  # File Not found
+
+
+class LectureRecord(BaseModel):
     id: int
-    sub_id: int
-    title: str
-    test_dir_name: str
-
-
-class SubAssignmentDetail(SubAssignmentBase):
-    makefile: str
-    required_file_name: str
-    main_file_name: str
-    test_case_name: str
-    test_input: Optional[str] = None  # 現状使わないかも．
-    test_output: Optional[str] = None
-    test_program: Optional[str] = None
-
-    def __init__(self, sub_assignment: models.SubAssignment):
-        super().__init__(
-            id=sub_assignment.id,
-            sub_id=sub_assignment.sub_id,
-            title=sub_assignment.title,
-            test_dir_name=sub_assignment.test_dir_name,
-            makefile=sub_assignment.makefile,
-            required_file_name=sub_assignment.required_file_name,
-            main_file_name=sub_assignment.main_file_name,
-            test_case_name=sub_assignment.test_case_name,
-        )
-
-    def set_test_program(self, assignment_title: str) -> str:
-        combined_path = os.path.join(
-            constants.TEST_PROGRAM_DIR_PATH,
-            assignment_title,
-            self.test_dir_name,
-            self.main_file_name,
-        )
-        logging.info(f"combined_path: {combined_path}")
-        if file_operation.check_path_exists(combined_path):
-            with open(combined_path, "r") as f:
-                self.test_program = f.read()
-        else:
-            self.test_program = ""
-        logging.info(f"test_program: {self.test_program}")
-        return self.test_program
-
-    def set_test_output(self, assignment_title: str) -> str:
-        combined_path = os.path.join(
-            constants.TEST_CASE_DIR_PATH,
-            assignment_title,
-            self.test_dir_name,
-            "out",
-            self.test_case_name,
-        )
-        if file_operation.check_path_exists(combined_path):
-            with open(combined_path, "r") as f:
-                self.test_output = f.read()
-        else:
-            self.test_output = ""
-        return self.test_output
-
-
-class SubAssignment(SubAssignmentBase):
-    makefile: str
-    required_file_name: str
-    main_file_name: str
-    test_input_dir: Optional[str] = None
-    test_output_dir: Optional[str] = None
-    test_program_dir: Optional[str] = None
-    test_case_name: Optional[str] = None
-
-    class Config:
-        orm_mode = True
-
-
-class AssignmentBase(BaseModel):
-    id: int
-    title: str
-    test_dir_name: str
+    title: str = Field(max_length=255)
     start_date: datetime
     end_date: datetime
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
 
 
-class AssignmentCreate(AssignmentBase):
-    pass
+class ArrangedFileRecord(BaseModel):
+    str_id: str
+    lecture_id: int
+    assignment_id: int
+    for_evaluation: bool
+    path: str
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
 
 
-class Assignment(AssignmentBase):
+class BatchSubmissionRecord(BaseModel):
     id: int
-    sub_assignments: List[SubAssignment] = []
-
-    class Config:
-        orm_mode = True
-
-
-class UserLogin(BaseModel):
-    student_id: str
-    password: str
+    ts: datetime
+    user_id: str
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
 
 
-class UserBase(BaseModel):
+class SubmissionRecord(BaseModel):
     id: int
-    username: str
-    student_id: str
-    is_admin: bool
+    ts: datetime
+    batch_id: int | None
+    user_id: str
+    lecture_id: int
+    assignment_id: int
+    for_evaluation: bool
+    progress: SubmissionProgressStatus
+    total_task: int = Field(default=0)
+    completed_task: int = Field(default=0)
+
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+    @field_serializer("progress")
+    def serialize_progress(self, progress: SubmissionProgressStatus, _info):
+        return progress.value
+
+
+class TestCaseRecord(BaseModel):
+    id: int
+    eval_id: str
+    description: str | None
+    command: str  # nullable=False
+    argument_path: str | None
+    stdin_path: str | None
+    stdout_path: str | None
+    stderr_path: str | None
+    exit_code: int  # default: 0
+
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+
+class EvaluationType(Enum):
+    Built = "Built"
+    Judge = "Judge"
+
+
+class EvaluationItemRecord(BaseModel):
+    str_id: str
+    lecture_id: int
+    assignment_id: int
+    for_evaluation: bool
+    title: str
+    description: str | None
+    score: int
+    type: EvaluationType
+    arranged_file_id: str | None
+    message_on_fail: str | None
+    # 紐づいているTestCaseRecordのリスト
+    testcase_list: list[TestCaseRecord] = Field(default_factory=list)
+
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+    @field_serializer("type")
+    def serialize_type(self, type: EvaluationType, _info):
+        return type.value
+
+
+class ProblemRecord(BaseModel):
+    lecture_id: int
+    assignment_id: int
+    for_evaluation: bool
+    title: str
+    description_path: str
+    timeMS: int
+    memoryMB: int
+    # 紐づいているEvaluationItemRecordのリスト
+    evaluation_item_list: list[EvaluationItemRecord] = Field(default_factory=list)
+
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+
+class JudgeResultRecord(BaseModel):
+    parent_id: int
+    submission_id: int
+    testcase_id: int
+    result: SingleJudgeStatus
+    timeMS: int
+    memoryKB: int
+    exit_code: int
+    stdout: str
+    stderr: str
+    # TestCasesレコードから取ってくる値
+    description: str | None
+    command: str
+    stdin: str | None
+    expected_stdout: str | None
+    expected_stderr: str | None
+    expected_exit_code: int = Field(default=0)
+    # テーブル挿入時に自動で決まる値
+    id: int = (
+        1  # テーブルに挿入する際は自動設定されるので、コンストラクタで指定する必要が無いように適当な値を入れている
+    )
+    ts: datetime = Field(default_factory=lambda: datetime(1998, 6, 6, 12, 32, 41))
+
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+    @field_serializer("result")
+    def serialize_result(self, result: SingleJudgeStatus, _info):
+        return result.value
+
+
+class EvaluationSummaryRecord(BaseModel):
+    parent_id: int
+    batch_id: int | None
+    user_id: str
+    lecture_id: int
+    assignment_id: int
+    for_evaluation: bool
+    eval_id: str
+    arranged_file_id: str | None
+    result: EvaluationSummaryStatus
+    message: str | None
+    detail: str | None
+    score: int
+    timeMS: int = Field(default=0)
+    memoryKB: int = Field(default=0)
+    # 外部キー関係ではないけどEvaluationItemsやArrangedFilesから取ってくる値
+    eval_title: str  # EvaluationItems.title
+    eval_description: str | None  # EvaluationItems.description
+    eval_type: EvaluationType  # EvaluationItems.type
+    arranged_file_path: str | None  # Arrangedfiles.path
+    # テーブルに挿入時に自動で値が決まるフィールド
+    id: int = 0  # auto increment PK
+    # 以降、クライアントで必要になるフィールド
+    judge_result_list: list[JudgeResultRecord] = Field(default_factory=list)
+
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+    @field_serializer("result")
+    def serialize_result(self, result: EvaluationSummaryStatus, _info):
+        return result.value
+
+
+class SubmissionSummaryRecord(BaseModel):
+    submission_id: int
+    batch_id: int | None
+    user_id: str
+    lecture_id: int
+    assignment_id: int
+    for_evaluation: bool
+    result: SubmissionSummaryStatus
+    message: str | None
+    detail: str | None
+    score: int
+    timeMS: int = Field(default=0)
+    memoryKB: int = Field(default=0)
+    # 以降、クライアントで必要になるフィールド
+    evaluation_summary_list: list[EvaluationSummaryRecord] = Field(default_factory=list)
+
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+    @field_serializer("result")
+    def serialize_result(self, result: SubmissionSummaryStatus, _info):
+        return result.value
+
+
+class EvaluationResultRecord(BaseModel):
+    user_id: str
+    lecture_id: int
+    score: int | None
+    report_path: str | None
+    comment: str | None
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+
+class LoginHistoryRecord(BaseModel):
+    user_id: str
+    login_at: datetime
+    logout_at: datetime
+    refresh_count: int
+
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+
+class Role(Enum):
+    admin = "admin"
+    manager = "manager"
+    student = "student"
+
+
+class UserRecord(BaseModel):
+    user_id: str = Field(max_length=255)
+    username: str = Field(max_length=255)
+    email: str = Field(max_length=255)
+    hashed_password: str = Field(max_length=255)
+    role: Role
     disabled: bool
+    created_at: datetime
+    updated_at: datetime
+    active_start_date: datetime
+    active_end_date: datetime
+    
+    @field_serializer("role")
+    def serialize_role(self, role: Role, _info):
+        return role.value
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
 
 
 class UserCreate(BaseModel):
-    student_id: str
+    user_id: str
     username: str
     email: str
-    password: str  # 暗号化前のパスワード
-    is_admin: bool = False
+    plain_password: str  # 暗号化前のパスワード
+    role: Role
     disabled: bool = False
-    created_at: Optional[datetime] = None
     active_start_date: Optional[datetime] = None
     active_end_date: Optional[datetime] = None
 
 
 class UserDelete(BaseModel):
-    user_ids: List[int]
-
-
-class User(UserBase):
-    id: int
-    hashed_password: str
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    active_start_date: Optional[datetime] = None
-    active_end_date: Optional[datetime] = None
-
-    class Config:
-        orm_mode = True
-
-
-class UserInDB(User):
-    hashed_password: str
+    user_ids: List[str]
 
 
 class Token(BaseModel):
     access_token: str
     token_type: str
     login_time: datetime
-    user_id: int
-    is_admin: bool
+    user_id: str
+    role: Role
+    refresh_count: int = Field(default=0)
+
+    @field_serializer("role")
+    def serialize_role(self, role: Role, _info):
+        return role.value
 
 
-class TokenData(BaseModel):
-    username: Union[str, None] = None
+class JWTTokenPayload(BaseModel):
+    sub: str = Field(max_length=255)
+    login: datetime
+    expire: datetime
+    scopes: list[str] = Field(default_factory=list)
+    role: Role
+
+    model_config = {
+        # JWTトークンのdict型からJWTTokenPayloadへ変換するための設定
+        "from_attributes": True
+    }
+
+    # dict型に変換するときに、mysqlのDATETIMEフォーマットに合わせるためのシリアライズ関数
+    @field_serializer("login", "expire")
+    def serialize_datetime_fields(self, dt: datetime, _info):
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    @field_serializer("role")
+    def serialize_role(self, role: Role, _info):
+        return role.value
 
 
-class AccessToken(BaseModel):
+class TokenValidateResponse(BaseModel):
+    is_valid: bool
+
+
+class TextDataResponse(BaseModel):
+    text: str
+
+
+# 提出の進捗状況と結果を取得するためのスキーマ
+class JudgeProgressAndStatus(BaseModel):
+    id: int  # submission.id
+    ts: datetime  # submission.ts
+    user_id: str  # submission.user_id
+    lecture_id: int  # submission.lecture_id
+    assignment_id: int  # submission.assignment_id
+    for_evaluation: bool  # submission.for_evaluation
+    progress: SubmissionProgressStatus  # submission.progress
+    completed_task: int  # submission.completed_task
+    total_task: int  # submission.total_task
+    result: SubmissionSummaryStatus | None
+    message: str | None
+    score: int | None
+    timeMS: int | None
+    memoryKB: int | None
+
+
+# アップロードされたファイルのリスト、およびアレンジされたファイルのリストを取得するためのスキーマ
+class FileRecord(BaseModel):
+    name: str # ファイル名
+    type: Literal["uploaded", "arranged"] # ファイルの種類
+    url: str | None = Field(default=None) # ファイルのURL(テキストデータでない場合)
+    text: str | None = Field(default=None) # ファイルのテキストデータ(テキストデータの場合)
+    
+
+class ArrangedFileRecord(BaseModel):
+    str_id: str
+    lecture_id: int
+    assignment_id: int
+    for_evaluation: bool
+    path: str
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+
+class UploadedFileRecord(BaseModel):
     id: int
-    token: str
-    expired_at: datetime
-    is_expired: bool
-    user_id: Optional[int] = None
-
-    class Config:
-        orm_mode = True
-
-
-class RefreshToken(BaseModel):
-    id: int
-    token: str
-    expired_at: datetime
-    is_expired: bool
-    user_id: Optional[int] = None
-
-    class Config:
-        orm_mode = True
+    ts: datetime
+    submission_id: int
+    path: str
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
 
 
-class ProgressMessage(BaseModel):
-    status: str
-    message: str
-    progress_percentage: int
-    result: Optional[Dict[str, Any]] = None
-
-
-class FunctionTest(BaseModel):
-    id: int
-    sub_id: int
-    func_id: int
-    func_name: str
-    exec_command: str
-
-    class Config:
-        orm_mode = True
+class UserView(BaseModel):
+    user_id: str
+    username: str
+    email: str
+    role: Role
+    disabled: bool
+    created_at: datetime
+    updated_at: datetime
+    active_start_date: datetime
+    active_end_date: datetime
 
 
 class File:

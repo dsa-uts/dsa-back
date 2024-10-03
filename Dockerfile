@@ -15,12 +15,8 @@ RUN wget https://github.com/jwilder/dockerize/releases/download/$DOCKERIZE_VERSI
 # 依存関係ファイルをコピー
 COPY ./requirements.txt ./
 
-# # dsa_test_caseとdsa_test_programをコンテナ内にコピー
-# COPY ./dsa_test_case/ ./dsa_test_case/
-# COPY ./dsa_test_program/ ./dsa_test_program/
-
 # アプリケーションコードをコピー
-COPY . .
+# COPY . .
 
 # 依存関係のインストール
 RUN pip3 install --no-cache-dir -r requirements.txt
