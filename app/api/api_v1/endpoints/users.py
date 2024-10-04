@@ -157,7 +157,7 @@ async def register_multiple_users(
 
     # updateしたdfをcsvに出力、{RESOURCE_DIR}/users/{YYYY-MM-DD-HH-MM-SS}.csv
     # ファイル名は、現在時刻をフォーマットしたものとする
-    user_file_dir = Path(constant.RESOURCE_DIR) / "users"
+    user_file_dir = Path(constant.UPLOAD_DIR) / "users"
     user_file_dir.mkdir(parents=True, exist_ok=True)
     file_path = user_file_dir / f"{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.csv"
     df.to_csv(file_path, index=False, encoding="shift-jis")
