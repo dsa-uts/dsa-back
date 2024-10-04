@@ -1,5 +1,5 @@
 from ....crud.db import assignments, users
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from ....dependencies import get_db
 from ....classes import schemas
@@ -57,8 +57,8 @@ def access_sanitize(
 
 
 @router.get("/", response_model=List[schemas.LectureRecord])
-async def read_(
-    open: bool,  # 公開期間内かどうか
+async def read_lectures(
+    open: Annotated[bool, Query(description="公開期間内の授業エントリを取得する場合はTrue、そうでない場合はFalse")],  # 公開期間内かどうか
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
@@ -976,18 +976,18 @@ async def read_batch_status(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> list[schemas.SubmissionRecord]:
+) -> schemas.BatchSubmissionProgress:
     """
     バッチ採点の進捗状況を取得する
     """
-    batch_submission_record = assignments.get_batch_submission(db, batch_id)
-    if batch_submission_record is None:
+    batch_submission_progress = assignments.get_batch_submission_progress(db, batch_id)
+    if batch_submission_progress is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="バッチ採点エントリが見つかりません",
         )
 
-    return assignments.get_submission_list_for_batch(db, batch_id)
+    return batch_submission_progress
 
 
 @router.get("/status/batch")
@@ -998,7 +998,7 @@ async def read_all_batch_status(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> List[schemas.BatchSubmissionRecord]:
+) -> List[schemas.BatchSubmissionProgress]:
     """
     全てのバッチ採点の進捗状況を取得する
     """
@@ -1008,7 +1008,14 @@ async def read_all_batch_status(
             detail="ページは1以上である必要があります",
         )
 
-    return assignments.get_batch_submission_list(db, limit=20, offset=(page - 1) * 20)
+    batch_submission_record_list = assignments.get_batch_submission_list(db, limit=20, offset=(page - 1) * 20)
+    
+    batch_submission_progress_list: list[schemas.BatchSubmissionProgress] = [
+        assignments.get_batch_submission_progress(db, batch_submission_record.id)
+        for batch_submission_record in batch_submission_record_list
+    ]
+
+    return batch_submission_progress_list
 
 
 # ジャッジ結果を取得するエンドポイント
