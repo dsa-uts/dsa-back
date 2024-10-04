@@ -470,3 +470,46 @@ def get_arranged_file(
         if arranged_file is not None
         else None
     )
+
+
+def get_batch_submission_progress(
+    db: Session, batch_id: int
+) -> schemas.BatchSubmissionProgress | None:
+    """
+    特定のバッチ採点リクエストについて、
+    ID, 提出時間, ユーザIDのほかに、全体のシングルジャッジの数 / 完了したシングルジャッジの数、
+    採点ステータス(Queued, Running, Completed)を取得する
+    """
+    batch_submission = get_batch_submission(db=db, batch_id=batch_id)
+    if batch_submission is None:
+        return None
+
+    # バッチ提出に紐づいたシングルジャッジの数を取得する。
+    entire_submission_count = (
+        db.query(models.Submission)
+        .filter(models.Submission.batch_id == batch_id)
+        .count()
+    )
+    completed_submission_count = (
+        db.query(models.Submission)
+        .filter(
+            models.Submission.batch_id == batch_id,
+            models.Submission.progress == schemas.SubmissionProgressStatus.DONE.value,
+        )
+        .count()
+    )
+
+    # バッチ採点ステータス(1個もジャッジしていない場合はQueued, 1個以上ジャッジしている場合はRunning, 全てのジャッジが完了した場合はDone)
+    progress_status = schemas.SubmissionProgressStatus.QUEUED
+    if completed_submission_count == entire_submission_count:
+        progress_status = schemas.SubmissionProgressStatus.DONE
+    elif completed_submission_count > 0:
+        progress_status = schemas.SubmissionProgressStatus.RUNNING
+
+    return schemas.BatchSubmissionProgress(
+        **batch_submission.model_dump(),
+        progress=progress_status,
+        completed_judge=completed_submission_count,
+        total_judge=entire_submission_count,
+    )
+

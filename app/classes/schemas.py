@@ -445,6 +445,17 @@ class JudgeProgressAndStatus(BaseModel):
     memoryKB: int | None
 
 
+# バッチ採点リクエストの進捗状況を取得するためのスキーマ
+class BatchSubmissionProgress(BaseModel):
+    id: int # batch_submission.id
+    ts: datetime # batch_submission.ts
+    user_id: str # batch_submission.user_id
+    # BatchSubmissionのレコードから新しく追加するフィールド
+    progress: SubmissionProgressStatus # batch_submission.progress
+    completed_judge: int # シングルジャッジの完了数
+    total_judge: int # シングルジャッジの総数
+
+
 # アップロードされたファイルのリスト、およびアレンジされたファイルのリストを取得するためのスキーマ
 class FileRecord(BaseModel):
     name: str # ファイル名
