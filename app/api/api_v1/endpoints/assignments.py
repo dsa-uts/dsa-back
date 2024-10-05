@@ -106,7 +106,7 @@ def unfold_zip(uploaded_zip_file: Path, dest_dir: Path) -> str | None:
     return None
 
 
-@router.get("/", response_model=List[schemas.LectureRecord])
+@router.get("/info", response_model=List[schemas.LectureRecord])
 async def read_lectures(
     open: Annotated[bool, Query(description="公開期間内の授業エントリを取得する場合はTrue、そうでない場合はFalse")],  # 公開期間内かどうか
     db: Annotated[Session, Depends(get_db)],
@@ -129,7 +129,7 @@ async def read_lectures(
         return [lecture for lecture in lecture_list if not lecture_is_public(lecture)]
 
 
-@router.get("/{lecture_id}", response_model=List[schemas.ProblemRecord])
+@router.get("/info/{lecture_id}", response_model=List[schemas.ProblemRecord])
 async def read_problems(
     lecture_id: int,
     evaluation: bool,  # 評価問題かどうか
@@ -165,7 +165,7 @@ async def read_problems(
     return problem_list
 
 
-@router.get("/{lecture_id}/{assignment_id}", response_model=schemas.ProblemRecord)
+@router.get("/info/{lecture_id}/{assignment_id}", response_model=schemas.ProblemRecord)
 async def read_problem(
     lecture_id: int,
     assignment_id: int,
@@ -211,7 +211,7 @@ async def read_problem(
     return problem_entry
 
 
-@router.get("/{lecture_id}/{assignment_id}/detail", response_model=schemas.ProblemRecord)
+@router.get("/info/{lecture_id}/{assignment_id}/detail", response_model=schemas.ProblemRecord)
 async def read_problem_detail(
     lecture_id: int,
     assignment_id: int,
@@ -258,7 +258,7 @@ async def read_problem_detail(
 
 
 @router.get(
-    "/{lecture_id}/{assignment_id}/description",
+    "/info/{lecture_id}/{assignment_id}/description",
     response_model=schemas.TextDataResponse,
 )
 async def read_problem_description(
@@ -316,7 +316,7 @@ async def read_problem_description(
     return schemas.TextDataResponse(text=description)
 
 
-@router.get("/{lecture_id}/{assignment_id}/required-files")
+@router.get("/info/{lecture_id}/{assignment_id}/required-files")
 async def read_required_files(
     lecture_id: int,
     assignment_id: int,
@@ -364,7 +364,7 @@ async def read_required_files(
     return required_files
 
 
-@router.post("/{lecture_id}/{assignment_id}/judge")
+@router.post("/judge/{lecture_id}/{assignment_id}")
 async def single_judge(
     file_list: list[UploadFile],
     lecture_id: int,
@@ -444,7 +444,7 @@ async def single_judge(
     return submission_record
 
 
-@router.post("/{lecture_id}/judge")
+@router.post("/judge/{lecture_id}")
 async def judge_all_by_lecture(
     uploaded_zip_file: UploadFile,
     lecture_id: int,
@@ -564,7 +564,7 @@ async def judge_all_by_lecture(
     return submission_record_list
 
 
-@router.post("/{lecture_id}/batch")
+@router.post("/batch/{lecture_id}")
 async def batch_judge(
     uploaded_zip_file: UploadFile,
     lecture_id: int,
