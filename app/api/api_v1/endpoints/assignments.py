@@ -514,6 +514,49 @@ async def judge_all_by_lecture(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=unzip_result,
             )
+    
+    '''
+    この時点でのworkspace_dirの構成
+    .
+    ├── report{lecture_id}.pdf
+    ├── Makefile
+    ├── main.c
+    ...
+    '''
+    
+    # report{lecture_id}.pdfが存在するかチェックする
+    if not (workspace_dir / f"report{lecture_id}.pdf").exists():
+        # 一番最初の問題について、Submissionエントリ/SubmissionSummaryエントリを作成し、
+        # 何もジャッジされていないことを表す
+        problem = problem_list[0]
+        submission_record = assignments.register_submission(
+            db=db,
+            batch_id=None,
+            user_id=current_user.user_id,
+            lecture_id=problem.lecture_id,
+            assignment_id=problem.assignment_id,
+            for_evaluation=problem.for_evaluation,
+        )
+        
+        submission_record.progress = schemas.SubmissionProgressStatus.DONE
+        assignments.modify_submission(db=db, submission_record=submission_record)
+        # SubmissionSummaryエントリを作成する
+        submission_summary_record = schemas.SubmissionSummaryRecord(
+            submission_id=submission_record.id,
+            batch_id=None,
+            user_id=current_user.user_id,
+            lecture_id=problem.lecture_id,
+            assignment_id=problem.assignment_id,
+            for_evaluation=problem.for_evaluation,
+            result=schemas.SubmissionSummaryStatus.FN,
+            message="フォーマットチェック: ZIPファイルにレポートが含まれていません",
+            detail=f"report{lecture_id}.pdf",
+            score=0,
+            timeMS=0,
+            memoryKB=0,
+        )
+        assignments.register_submission_summary(db=db, submission_summary_record=submission_summary_record)
+        return [submission_record]
 
     submission_record_list = []
     
@@ -767,19 +810,18 @@ async def batch_judge(
                     )
                     report_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy(file, report_path)
-                    break
 
-            # EvaluationResultレコードを登録する
-            assignments.register_evaluation_result(
-                db=db,
-                evaluation_result_record=schemas.EvaluationResultRecord(
-                    user_id=user_id,
-                    lecture_id=problem.lecture_id,
-                    score=None,
-                    report_path=str(report_path) if report_path is not None else None,
-                    comment=None,
-                ),
-            )
+                    # EvaluationResultレコードを登録する
+                    assignments.register_evaluation_result(
+                        db=db,
+                        evaluation_result_record=schemas.EvaluationResultRecord(
+                            user_id=user_id,
+                            lecture_id=problem.lecture_id,
+                            score=None,
+                            report_path=str(report_path) if report_path is not None else None,
+                            comment=None,
+                        ),
+                    )
 
     return batch_submission_record
 

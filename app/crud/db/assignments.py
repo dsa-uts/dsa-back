@@ -513,3 +513,12 @@ def get_batch_submission_progress(
         total_judge=entire_submission_count,
     )
 
+def register_submission_summary(
+    db: Session, submission_summary_record: schemas.SubmissionSummaryRecord
+) -> None:
+    """
+    提出エントリのジャッジ結果をSubmissionSummaryテーブルに登録する関数
+    """
+    new_submission_summary = models.SubmissionSummary(**submission_summary_record.model_dump(exclude={"evaluation_summary_list"}))
+    db.add(new_submission_summary)
+    db.commit()
