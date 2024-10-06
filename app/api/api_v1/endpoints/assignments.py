@@ -1355,6 +1355,39 @@ async def read_submission_summary_list_for_batch(
     return batch_evaluation_detail
 
 
+@router.get("/result/batch/{batch_id}/user/{user_id}", response_model=schemas.EvaluationDetail)
+async def read_submission_summary_list_for_batch_user(
+    batch_id: int,
+    user_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        schemas.UserRecord,
+        Security(authenticate_util.get_current_active_user, scopes=["batch"]),
+    ],
+) -> schemas.EvaluationDetail:
+    """
+    特定のバッチ採点のジャッジ結果を取得する
+    """
+    batch_user_detail = assignments.get_batch_user_detail(db, batch_id, user_id)
+    if batch_user_detail is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="バッチ採点エントリが見つかりません",
+        )
+    
+    submission_summary_list = assignments.get_submission_summary_list_for_batch_user(db, batch_id, user_id)
+    
+    return schemas.EvaluationDetail(
+        user_id=batch_user_detail.user_id,
+        status=batch_user_detail.status,
+        result=batch_user_detail.result,
+        uploaded_file_url=f"/assignments/batch/{batch_id}/files/uploaded/{user_id}",
+        report_url=f"/assignments/batch/{batch_id}/files/report/{user_id}",
+        submit_date=batch_user_detail.submit_date,
+        submission_summary_list=submission_summary_list
+    )
+
+
 @router.get("/result/batch/{batch_id}/files/uploaded/{user_id}", response_class=FileResponse)
 async def fetch_uploaded_files_of_batch(
     batch_id: int,
