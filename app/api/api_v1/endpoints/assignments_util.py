@@ -9,7 +9,7 @@ def get_report_list(report_list_path: Path) -> pd.DataFrame | None:
     "# 学籍番号", "# ロール", "# 提出", "# 提出日時"の4列のみを取得する
     '''
     
-    if report_list_path.suffix != ".xlsx" and report_list_path.suffix != ".xls":
+    if not report_list_path.exists():
         return None
     
     # エクセルファイルを読み込む

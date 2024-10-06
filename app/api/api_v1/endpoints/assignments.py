@@ -747,6 +747,7 @@ async def batch_judge(
         user_id = str(row["# 学籍番号"]) if not pd.isna(row["# 学籍番号"]) else None
         submission_status = str(row["# 提出"]) if not pd.isna(row["# 提出"]) else None
         submit_date = datetime.strptime(str(row["# 提出日時"]), "%Y-%m-%d %H:%M:%S") if not pd.isna(row["# 提出日時"]) else None
+        # logging.info(f"user_id: {user_id}, submission_status: {submission_status}, submit_date: {submit_date}")
 
         if user_id is None:
             error_message += f"{index}行目の学籍番号が空です\n"
@@ -774,7 +775,7 @@ async def batch_judge(
             ),
         )
         
-        if submission_status == "未提出":
+        if batch_submission_summary_record.status == schemas.StudentSubmissionStatus.NON_SUBMITTED:
             batch_submission_summary_list.append(batch_submission_summary_record)
             continue
 
@@ -794,6 +795,7 @@ async def batch_judge(
         
         # user_dir_path/"class{lecture_id}.zip"を、{UPLOAD_DIR}/{batch_submission_record.ts}-{batch_submission_record.id}/{user_id}/に解凍する。
         user_zip_file_extract_dest = Path(constant.UPLOAD_DIR) / f"{batch_submission_record.ts.strftime('%Y-%m-%d-%H-%M-%S')}-{batch_submission_record.id}" / user_id
+        user_zip_file_extract_dest.mkdir(parents=True, exist_ok=True)
         message = unfold_zip(user_zip_file_on_workspace, user_zip_file_extract_dest)
         if message is not None:
             error_message += f"{index}行目のユーザのZipファイルの解凍中にエラーが発生しました: {message}\n"
@@ -831,7 +833,7 @@ async def batch_judge(
         # 提出済みの場合は、ジャッジを行う
         
         uploaded_filepath_list = [
-            p for p in Path(batch_submission_summary_record.upload_dir).iterdir()
+            p for p in (Path(constant.UPLOAD_DIR) / batch_submission_summary_record.upload_dir).iterdir()
             if p.is_file()
         ]
         
@@ -841,7 +843,7 @@ async def batch_judge(
             submission_record = assignments.register_submission(
                 db=db,
                 batch_id=batch_id,
-                user_id=user_id,
+                user_id=batch_submission_summary_record.user_id,
                 lecture_id=problem.lecture_id,
                 assignment_id=problem.assignment_id,
                 for_evaluation=problem.for_evaluation,
@@ -877,6 +879,7 @@ async def batch_judge(
     assignments.modify_batch_submission(db=db, batch_submission_record=batch_submission_record)
     
     workspace_dir.cleanup()
+    return batch_submission_record
 
 
 @router.get("/status/submissions/me")
@@ -1300,17 +1303,16 @@ async def read_submission_summary_list_for_batch(
     # user_id -> list[schemas.SubmissionSummaryRecord]の辞書を作成する
     submission_summary_dict: dict[str, list[schemas.SubmissionSummaryRecord]] = {}
     for submission_entry in submission_entry_list:
+        submission_summary = assignments.get_submission_summary(db, submission_entry.id)
+        if submission_summary is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="提出エントリのジャッジ結果が見つかりません",
+            )
         if submission_entry.user_id not in submission_summary_dict:
-            submission_summary_dict[submission_entry.user_id] = []
+            submission_summary_dict[submission_entry.user_id] = [submission_summary]
         else:
-            submission_summary = assignments.get_submission_summary(db, submission_entry.id)
-            if submission_summary is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="提出エントリのジャッジ結果が見つかりません",
-                )
             submission_summary_dict[submission_entry.user_id].append(submission_summary)
-
 
     # 集計する
     batch_evaluation_detail = schemas.BatchEvaluationDetail(
@@ -1336,8 +1338,17 @@ async def read_submission_summary_list_for_batch(
             # TODO: レポートを取得するAPIを作成する
             report_url=f"/assignments/batch/{batch_id}/files/report/{batch_submission_summary.user_id}",
             submit_date=batch_submission_summary.submit_date,
-            submission_summary_list=submission_summary_dict[batch_submission_summary.user_id]
+            submission_summary_list=submission_summary_dict[batch_submission_summary.user_id] if batch_submission_summary.status != schemas.StudentSubmissionStatus.NON_SUBMITTED else []
         )
+        # もし、statusがSUBMITTEDもしくはDELAYで、resultがNoneの場合は、resultを更新する
+        if batch_submission_summary.status in [schemas.StudentSubmissionStatus.SUBMITTED, schemas.StudentSubmissionStatus.DELAY] and batch_submission_summary.result is None:
+            # 全体のジャッジ結果を更新する
+            result = schemas.SubmissionSummaryStatus.AC
+            for submission_summary in submission_summary_dict[batch_submission_summary.user_id]:
+                result = max(result, submission_summary.result)
+            batch_submission_summary.result = result
+            evaluation_detail.result = result
+            assignments.update_batch_submission_summary(db, batch_submission_summary)
         evaluation_detail_list.append(evaluation_detail)
 
     batch_evaluation_detail.evaluation_detail_list = evaluation_detail_list

@@ -161,6 +161,14 @@ class BatchSubmissionSummaryRecord(BaseModel):
         # sqlalchemyのレコードデータからマッピングするための設定
         "from_attributes": True
     }
+    
+    @field_serializer("status")
+    def serialize_status(self, status: StudentSubmissionStatus, _info):
+        return status.value
+    
+    @field_serializer("result")
+    def serialize_result(self, result: SubmissionSummaryStatus, _info):
+        return result.value if result is not None else None
 
 
 class SubmissionRecord(BaseModel):
@@ -506,7 +514,7 @@ class EvaluationDetail(BaseModel):
     
     @field_serializer("result")
     def serialize_result(self, result: SubmissionSummaryStatus, _info):
-        return result.value
+        return result.value if result is not None else None
 
 
 class BatchEvaluationDetail(BaseModel):
