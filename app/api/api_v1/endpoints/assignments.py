@@ -729,6 +729,9 @@ async def batch_judge(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="reportlist.xlsxまたはreportlist.xlsが存在しません",
         )
+        
+    # "# ロール"の値が"履修生"である行のみ残す
+    report_list_df = report_list_df[report_list_df["# ロール"] == "履修生"]
 
     # ユーザの学籍番号をキーとして、そのユーザの提出状況を格納する
     # 未提出のユーザはNoneとする。
