@@ -60,6 +60,14 @@ def access_sanitize(
             )
 
 
+def get_zip_file_size(path: Path) -> int:
+    """
+    zipファイルの容量をMB単位で返す
+    """
+    with zipfile.ZipFile(path, "r") as zip_ref:
+        return sum([zinfo.file_size for zinfo in zip_ref.filelist]) / 1024 / 1024 # MB
+
+
 def unfold_zip(uploaded_zip_file: Path, dest_dir: Path) -> str | None:
     """
     uploaded_zip_fileが以下の条件を満たすかチェックしながら、dest_dirにファイルを配置していく。
@@ -74,6 +82,10 @@ def unfold_zip(uploaded_zip_file: Path, dest_dir: Path) -> str | None:
     # zip提出の場合
     if not uploaded_zip_file.name.endswith(".zip"):
         return "zipファイルを提出してください。",
+
+    # zipファイルの容量が30MBを超える場合はエラー
+    if get_zip_file_size(uploaded_zip_file) > 30:
+        return "zipファイルの展開後の容量が30MBを超えています。"
 
     # 展開する
     with zipfile.ZipFile(uploaded_zip_file, "r") as zip_ref:
@@ -454,7 +466,6 @@ async def judge_all_by_lecture(
     lecture_id: int,
     evaluation: bool,  # 評価問題かどうか
     db: Annotated[Session, Depends(get_db)],
-    workspace_dir: Annotated[Path, Depends(get_temporary_directory)],
     current_user: Annotated[
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["me"]),
@@ -505,6 +516,12 @@ async def judge_all_by_lecture(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="zipファイル名が不正です",
         )
+        
+    # zipファイルの内容を{UPLOAD_DIR}/format-check/{user_id}/{lecture_id}/{current_timestamp}に配置する
+    upload_dir = Path(constant.UPLOAD_DIR) / "format-check" / current_user.user_id / str(lecture_id) / datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+    if upload_dir.exists():
+        shutil.rmtree(upload_dir)
+    upload_dir.mkdir(parents=True, exist_ok=True)
     
     with tempfile.TemporaryDirectory() as temp_dir:
         # アップロードされたzipファイルをtemp_dir下にコピーする
@@ -512,12 +529,14 @@ async def judge_all_by_lecture(
         with open(temp_uploaded_zip_file_path, "wb") as temp_uploaded_zip_file:
             shutil.copyfileobj(uploaded_zip_file.file, temp_uploaded_zip_file)
         # アップロードされたzipファイルをtemp_dirに解凍する
-        unzip_result = unfold_zip(temp_uploaded_zip_file_path, workspace_dir)
+        unzip_result = unfold_zip(temp_uploaded_zip_file_path, upload_dir)
         if unzip_result is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=unzip_result,
-            )
+        )
+    
+    workspace_dir = upload_dir
     
     '''
     この時点でのworkspace_dirの構成
@@ -576,32 +595,23 @@ async def judge_all_by_lecture(
             for_evaluation=problem.for_evaluation,
         )
 
-        # アップロードされたファイルを/upload/{submission_record.ts}-{current_user.user_id}-{submission_id}に配置する
-        # 要求されているファイルのリストに含まれているファイルのみを配置する
-        upload_dir = Path(constant.UPLOAD_DIR) / f"{submission_record.ts.strftime('%Y-%m-%d-%H-%M-%S')}-{current_user.user_id}-{submission_record.id}"
-        if upload_dir.exists():
-            shutil.rmtree(upload_dir)
-
-        upload_dir.mkdir(parents=True, exist_ok=True)
-
-        for file in workspace_dir.iterdir():
-            if file.is_dir():
-                # フォルダが無いはずだが、念のためにチェックしておく
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="zipファイル内にフォルダが含まれています",
-                )
-            
-            if file.name not in required_file_list:
+        # workspace_dirの中に、required_file_listに含まれるファイルがあるかチェックする
+        for required_file in required_file_list:
+            required_file_path = workspace_dir / required_file
+            if not required_file_path.exists():
                 continue
-
-            with open(file, "rb") as source_file:
-                dest_path = upload_dir / file.name
-                with open(dest_path, "wb") as dest_file:
-                    shutil.copyfileobj(source_file, dest_file)
-                assignments.register_uploaded_file(
-                    db=db, submission_id=submission_record.id, path=dest_path.relative_to(Path(constant.UPLOAD_DIR))
-                )
+            
+            # ファイルをUploadedFilesテーブルに登録する
+            assignments.register_uploaded_file(
+                db=db, submission_id=submission_record.id, path=required_file_path.relative_to(Path(constant.UPLOAD_DIR))
+            )
+            
+        # report{lecture_id}.pdfもUploadedFilesテーブルに登録する
+        report_path = workspace_dir / f"report{lecture_id}.pdf"
+        if report_path.exists():
+            assignments.register_uploaded_file(
+                db=db, submission_id=submission_record.id, path=report_path.relative_to(Path(constant.UPLOAD_DIR))
+            )
 
         # 提出エントリをキューに登録する
         submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
@@ -802,6 +812,9 @@ async def batch_judge(
         
         if batch_submission_summary_record.upload_dir is None:
             error_message += f"{batch_submission_summary_record.user_id}の提出フォルダが存在しません\n"
+            # 提出フォルダが存在しない場合は、非提出とする
+            batch_submission_summary_record.status = schemas.StudentSubmissionStatus.NON_SUBMITTED
+            assignments.update_batch_submission_summary(db=db, batch_submission_summary_record=batch_submission_summary_record)
             continue
         
         # 提出済みの場合は、ジャッジを行う
