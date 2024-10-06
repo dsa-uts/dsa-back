@@ -150,6 +150,12 @@ async def update_token(
     token: Annotated[str, Depends(oauth2_scheme)],
 ) -> schemas.Token:
     logging.info(f"update_token, token: {token}")
+    '''
+    リフレッシュ方針
+    
+    1. リフレッシュトークンは、再認証しない限り新しく発行はされない。その代わり有効期限は長め
+    2. リフレッシュトークンの有効期間内に、アクセストークンのみ再発行できる。
+    '''
 
     # アクセストークンのデコード
     access_token_payload = decode_token(token=token)
@@ -207,13 +213,13 @@ async def update_token(
             refresh_count=login_history.refresh_count,
         )
 
-    # リフレッシュ回数が上限値を超えているのならば、該当ログイン履歴を削除し、HTTPExceptionを吐く
-    if login_history.refresh_count > 3:
-        # authorize.remove_login_history(db=db, user_id=user_id, login_at=login_at)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="your login session has expired",
-        )
+    # # リフレッシュ回数が上限値を超えているのならば、該当ログイン履歴を削除し、HTTPExceptionを吐く
+    # if login_history.refresh_count > 3:
+    #     # authorize.remove_login_history(db=db, user_id=user_id, login_at=login_at)
+    #     raise HTTPException(
+    #         status_code=status.HTTP_401_UNAUTHORIZED,
+    #         detail="your login session has expired",
+    #     )
 
     # アクセストークンが無効でリフレッシュトークンが有効のとき、
     # 新しいアクセストークンとリフレッシュトークンを発行する
@@ -221,8 +227,8 @@ async def update_token(
         sub=access_token_payload.sub,
         login=access_token_payload.login,
         ################## Vital ###############################################
-        # 以前のアクセストークンの失効時間からアクセストークンの有効期間の分だけ伸ばす
-        expire=access_token_payload.expire + access_token_duration,
+        # 現在時刻からアクセストークンの有効期間の分だけ伸ばす
+        expire=get_current_time() + access_token_duration,
         ########################################################################
         scopes=access_token_payload.scopes,
     )
@@ -230,34 +236,10 @@ async def update_token(
         data=new_access_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
     )
 
-    new_refresh_token_payload = schemas.JWTTokenPayload(
-        sub=refresh_token_payload.sub,
-        login=refresh_token_payload.login,
-        ################## Vital ###############################################
-        # 以前の**アクセストークン**の失効時間から**リフレッシュトークン**の有効期間の分だけ
-        # 伸ばす
-        expire=access_token_payload.expire + refresh_token_duration,
-        ########################################################################
-        scopes=refresh_token_payload.scopes,
-    )
-    new_refresh_token: str = jwt.encode(
-        data=new_refresh_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
-    )
-
     # 新しいトークンペアをLoginHistoryに登録 + refresh_countを1加算
     login_history.logout_at = new_access_token_payload.expire
     login_history.refresh_count += 1
     authorize.update_login_history(db=db, login_history_record=login_history)
-
-    # 新しいリフレッシュトークンをクッキーにセット
-    response.set_cookie(
-        key="refresh_token",
-        value=new_refresh_token,
-        httponly=True,
-        secure=False,
-        samesite="Lax",
-        expires=datetime.now(timezone.utc) + refresh_token_duration,
-    )
 
     return schemas.Token(
         access_token=new_access_token,
