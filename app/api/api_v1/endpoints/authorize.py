@@ -231,6 +231,7 @@ async def update_token(
         expire=get_current_time() + access_token_duration,
         ########################################################################
         scopes=access_token_payload.scopes,
+        role=access_token_payload.role
     )
     new_access_token: str = jwt.encode(
         data=new_access_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
