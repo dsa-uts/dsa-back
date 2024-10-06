@@ -174,7 +174,7 @@ async def get_users_list(
         schemas.UserRecord,
         Security(authenticate_util.get_current_user, scopes=["view_users"]),
     ],
-):
+) -> List[schemas.UserView]:
     # パスワードを除外して返す
     return [
         schemas.UserView.model_validate(user.model_dump(exclude={"hashed_password"}))
@@ -213,3 +213,29 @@ async def delete_users(
         return {"msg": "ユーザーが正常に削除されました。"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/me")
+async def get_my_user_info(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        schemas.UserRecord,
+        Security(authenticate_util.get_current_user, scopes=["me"]),
+    ],
+) -> schemas.UserView:
+    return schemas.UserView.model_validate(current_user.model_dump(exclude={"hashed_password"}))
+
+
+@router.get("/info/{user_id}")
+async def get_user_info(
+    user_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        schemas.UserRecord,
+        Security(authenticate_util.get_current_user, scopes=["view_users"]),
+    ],
+) -> schemas.UserView:
+    user_record = crud_users.get_user(db=db, user_id=user_id)
+    if user_record is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return schemas.UserView.model_validate(user_record.model_dump(exclude={"hashed_password"}))
