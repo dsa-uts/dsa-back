@@ -17,6 +17,10 @@ from pathlib import Path
 import tempfile
 import zipfile
 import re
+from app.api.api_v1.endpoints import assignments_util
+from pydantic import BaseModel
+import pandas as pd
+
 logging.basicConfig(level=logging.DEBUG)
 
 router = APIRouter()
@@ -663,19 +667,21 @@ async def batch_judge(
     batch_submission_record = assignments.register_batch_submission(
         db=db,
         user_id=current_user.user_id,
+        lecture_id=lecture_id
     )
 
     batch_id = batch_submission_record.id
-    
+    total_judge = 0 # 採点対象の学生の数 (未提出でない学生の数)
+
     # アップロードされたzipファイルをworkspace_dirに展開する
     with zipfile.ZipFile(uploaded_zip_file.file, "r") as zip_ref:
         zip_ref.extractall(workspace_dir)
-    
+
     # 展開先のディレクトリで、フォルダが一個しかない
     current_dir = workspace_dir
     if len(list(current_dir.iterdir())) == 1 and list(current_dir.iterdir())[0].is_dir():
         current_dir = list(current_dir.iterdir())[0]
-    
+
     '''
     この時点でのcurrent_dirの構成
     .
@@ -690,140 +696,158 @@ async def batch_judge(
     ...
     └── reportlist.xlsx
     ''' 
-    # フォルダ名が"{9桁のID}@{13桁のID}"の形式であり、全ての{9桁のID}が、Userテーブルに存在することを確認する
-    user_id_and_zip_file_list: list[tuple[str, Path]] = []
-    
-    for user_dir in current_dir.iterdir():
-        if not user_dir.is_dir():
-            continue
-        
-        if not re.match(r"^\d{9}@\d{13}$", user_dir.name):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"フォルダ名が不正です: {user_dir.name}",
-            )
-        
-        user_id = user_dir.name.split("@")[0]
-        if users.get_user(db, user_id) is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"ユーザが見つかりません: {user_id}",
-            )
-        
-        user_id_and_zip_file_list.append((user_id, user_dir / f"class{lecture_id}.zip"))
 
-    # ユーザごとに各課題のジャッジリクエストを発行する
-    for user_id, zip_file_path in user_id_and_zip_file_list:
-        if not zip_file_path.exists():
-            # 要件を満たしていないので、全ての課題を未回答とする
-            for problem in problem_list:
-                submission_record = assignments.register_submission(
-                    db=db,
-                    batch_id=batch_id,
-                    user_id=user_id,
-                    lecture_id=problem.lecture_id,
-                    assignment_id=problem.assignment_id,
-                    for_evaluation=problem.for_evaluation,
-                )
-                submission_record.progress = schemas.SubmissionProgressStatus.DONE
-                assignments.modify_submission(db=db, submission_record=submission_record)
+    # reportlist.xlsxを読み込み、未提出も含めて、採点対象の学生のリストを取得する
+    # 取得する情報、学籍番号、提出状況(提出済/受付終了後提出/未提出)、提出日時(None | datetime)
+    report_list_df = assignments_util.get_report_list(current_dir / "reportlist.xlsx")
+
+    if report_list_df is None:
+        # reportlist.xlsxが存在しない場合は、reportlist.xlsを試す
+        report_list_df = assignments_util.get_report_list(current_dir / "reportlist.xls")
+
+    if report_list_df is None:
+        # reportlist.xlsxもreportlist.xlsも存在しない場合は、エラーを返す
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="reportlist.xlsxまたはreportlist.xlsが存在しません",
+        )
+
+    # ユーザの学籍番号をキーとして、そのユーザの提出状況を格納する
+    # 未提出のユーザはNoneとする。
+    batch_submission_summary_list: list[schemas.BatchSubmissionSummaryRecord] = []
+
+    error_message = ""
+
+    # report_list_dfの"# 学籍番号"の値(9桁の学籍番号)と"# 提出"の値(提出済/受付終了後提出/未提出)を参照し、
+    # "未提出"でないなら、{9桁の学籍番号}@{13桁のID}のフォルダを探す。
+    # そのフォルダが存在するなら、user_id_to_batch_submission_summaryにそのユーザの提出状況を格納する。
+    # そのフォルダが存在しないなら、error_messageにエラーメッセージを追加する。
+    for index, row in report_list_df.iterrows():
+        user_id = str(row["# 学籍番号"]) if not pd.isna(row["# 学籍番号"]) else None
+        submission_status = str(row["# 提出"]) if not pd.isna(row["# 提出"]) else None
+        submit_date = datetime.strptime(str(row["# 提出日時"]), "%Y-%m-%d %H:%M:%S") if not pd.isna(row["# 提出日時"]) else None
+
+        if user_id is None:
+            error_message += f"{index}行目の学籍番号が空です\n"
             continue
         
-        # class{lecture_id}.zipをtemp_dirに解凍する
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_dir_path = Path(temp_dir)
-            error_message = unfold_zip(zip_file_path, temp_dir_path)
-            if error_message is not None:
-                # エラーがある場合は、全ての課題を未回答とする
-                for problem in problem_list:
-                    submission_record = assignments.register_submission(
-                        db=db,
-                        batch_id=batch_id,
-                        user_id=user_id,
-                        lecture_id=problem.lecture_id,
-                        assignment_id=problem.assignment_id,
-                        for_evaluation=problem.for_evaluation,
-                    )
-                    submission_record.progress = schemas.SubmissionProgressStatus.DONE
-                    assignments.modify_submission(db=db, submission_record=submission_record)
-                continue
-            
-            # 解凍したファイルのリストを取得
-            file_list = [
-                file_path for file_path in temp_dir_path.iterdir() if file_path.is_file()
+        if users.get_user(db, user_id) is None:
+            error_message += f"{index}行目のユーザがDBに登録されていません: {user_id}\n"
+            continue
+
+        if (submission_status is "提出済" or submission_status is "受付終了後提出") and submit_date is None:
+            error_message += f"{index}行目の提出日時が提出済みであるにも関わらず空です。遅延判定ができません\n"
+            continue
+
+        batch_submission_summary_record = schemas.BatchSubmissionSummaryRecord(
+            batch_id=batch_id,
+            user_id=user_id,
+            status=(
+                schemas.StudentSubmissionStatus.SUBMITTED
+                if submission_status == "提出済"
+                else (
+                    schemas.StudentSubmissionStatus.DELAY
+                    if submission_status == "受付終了後提出"
+                    else schemas.StudentSubmissionStatus.NON_SUBMITTED
+                )
+            ),
+        )
+        
+        if submission_status == "未提出":
+            batch_submission_summary_list.append(batch_submission_summary_record)
+            continue
+
+        user_dir_pattern = re.compile(f"{user_id}@\\d{{3}}{user_id}\\d{{1}}")
+        matching_dirs = [d for d in current_dir.iterdir() if d.is_dir() and user_dir_pattern.match(d.name)]
+        user_dir_path = matching_dirs[0] if len(matching_dirs) > 0 else None
+
+        if user_dir_path is None:
+            error_message += f"{index}行目のユーザは提出済みであるにも関わらず、フォルダが存在しません\n"
+            continue
+        
+        # user_dir_pathの内部にclass{lecture_id}.zipが存在するかチェックする
+        user_zip_file_on_workspace = user_dir_path / f"class{lecture_id}.zip"
+        if not user_zip_file_on_workspace.exists():
+            error_message += f"{index}行目のユーザは提出済みであるにも関わらず、class{lecture_id}.zipを提出していません\n"
+            continue
+        
+        # user_dir_path/"class{lecture_id}.zip"を、{UPLOAD_DIR}/{batch_submission_record.ts}-{batch_submission_record.id}/{user_id}/に解凍する。
+        user_zip_file_extract_dest = Path(constant.UPLOAD_DIR) / f"{batch_submission_record.ts.strftime('%Y-%m-%d-%H-%M-%S')}-{batch_submission_record.id}" / user_id
+        message = unfold_zip(user_zip_file_on_workspace, user_zip_file_extract_dest)
+        if message is not None:
+            error_message += f"{index}行目のユーザのZipファイルの解凍中にエラーが発生しました: {message}\n"
+            # エラーがあっても一応、ジャッジを行う
+        
+        # 提出日時を設定する
+        # アップロード先のディレクトリパス
+        batch_submission_summary_record.upload_dir = str(user_zip_file_extract_dest.relative_to(Path(constant.UPLOAD_DIR)))
+        
+        # レポートのパス(アップロード先にreport1.pdfがあるはず、なかったらNone)
+        report_path = user_zip_file_extract_dest / "report1.pdf"
+        if report_path.exists():
+            batch_submission_summary_record.report_path = str(report_path.relative_to(Path(constant.UPLOAD_DIR)))
+        
+        # 提出日時を設定する
+        batch_submission_summary_record.submit_date = submit_date
+        
+        batch_submission_summary_list.append(batch_submission_summary_record)
+        
+    for batch_submission_summary_record in batch_submission_summary_list:
+        assignments.register_batch_submission_summary(db=db, batch_submission_summary_record=batch_submission_summary_record)
+        
+        # 未提出の場合は、ジャッジを行わない
+        if batch_submission_summary_record.status == schemas.StudentSubmissionStatus.NON_SUBMITTED:
+            # batch_submission_summary_record.result = None
+            continue
+        
+        if batch_submission_summary_record.upload_dir is None:
+            error_message += f"{batch_submission_summary_record.user_id}の提出フォルダが存在しません\n"
+            continue
+        
+        # 提出済みの場合は、ジャッジを行う
+        total_judge += 1
+        
+        uploaded_filepath_list = [
+            p for p in Path(batch_submission_summary_record.upload_dir).iterdir()
+            if p.is_file()
+        ]
+        
+        # 各課題ごとにジャッジリクエストを発行する
+        for problem, required_file_list in zip(problem_list, required_files_for_problem):
+            # ジャッジリクエストをSubmissionテーブルに登録する
+            submission_record = assignments.register_submission(
+                db=db,
+                batch_id=batch_id,
+                user_id=user_id,
+                lecture_id=problem.lecture_id,
+                assignment_id=problem.assignment_id,
+                for_evaluation=problem.for_evaluation,
+            )
+
+            # uploaded_filepath_listの中から、required_file_listに含まれているファイルのみ、
+            # UploadedFilesテーブルに登録する
+            filtered_uploaded_filepath_list = [
+                p for p in uploaded_filepath_list
+                if p.name in required_file_list
             ]
             
-            # 各課題のジャッジリクエストを作成する
-            for problem, required_file_list in zip(
-                problem_list, required_files_for_problem
-            ):
-                # ジャッジリクエストをSubmissionテーブルに登録する
-                submission_record = assignments.register_submission(
+            for p in filtered_uploaded_filepath_list:
+                assignments.register_uploaded_file(
                     db=db,
-                    batch_id=batch_id,
-                    user_id=user_id,
-                    lecture_id=problem.lecture_id,
-                    assignment_id=problem.assignment_id,
-                    for_evaluation=problem.for_evaluation,
+                    submission_id=submission_record.id,
+                    path=p.relative_to(Path(constant.UPLOAD_DIR))
                 )
-
-                # アップロード先のフォルダ"/upload/{submission_record.ts}-{user_id}-{submission_record.id}"を作成する
-                upload_dir = Path(constant.UPLOAD_DIR) / f"{submission_record.ts.strftime('%Y-%m-%d-%H-%M-%S')}-{submission_record.id}"
-                if upload_dir.exists():
-                    shutil.rmtree(upload_dir)
-
-                upload_dir.mkdir(parents=True, exist_ok=True)
-
-                # アップロードされたファイルをupload_dirに配置する
-                # 要求されているファイルのリストに含まれているファイルのみを配置する
-                for file in file_list:
-                    if file.name not in required_file_list:
-                        continue
-                    
-                    # ファイルを開く
-                    with open(file, "rb") as source_file:
-                        # ファイルをアップロード先に配置する
-                        dest_path = upload_dir / file.name
-                        with open(dest_path, "wb") as dest_file:
-                            shutil.copyfileobj(source_file, dest_file)
-                        assignments.register_uploaded_file(
-                            db=db, submission_id=submission_record.id, path=dest_path.relative_to(Path(constant.UPLOAD_DIR))
-                        )
-
-                # 提出エントリをキューに登録する
-                submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
-                assignments.modify_submission(
-                    db=db, submission_record=submission_record
-                )
-
-            # PDFファイルを探す
-            report_path: Path | None = None
-            for file in file_list:
-                if file.name.endswith(".pdf"):
-                    # "UPLOAD_DIR/report/{user_id}/{lecture_id}/"にアップロード
-                    report_path = (
-                        Path(constant.UPLOAD_DIR)
-                        / "report"
-                        / user_id
-                        / str(lecture_id)
-                        / f"report{lecture_id}-{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.pdf"
-                    )
-                    report_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy(file, report_path)
-
-                    # EvaluationResultレコードを登録する
-                    assignments.register_evaluation_result(
-                        db=db,
-                        evaluation_result_record=schemas.EvaluationResultRecord(
-                            user_id=user_id,
-                            lecture_id=problem.lecture_id,
-                            score=None,
-                            report_path=str(report_path) if report_path is not None else None,
-                            comment=None,
-                        ),
-                    )
-
-    return batch_submission_record
+            
+            # 提出エントリをキューに登録する
+            submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
+            assignments.modify_submission(
+                db=db, submission_record=submission_record
+            )
+    
+    # total_judgeの値を更新する
+    batch_submission_record.complete_judge = 0
+    batch_submission_record.total_judge = total_judge
+    assignments.modify_batch_submission(db=db, batch_submission_record=batch_submission_record)
 
 
 @router.get("/status/submissions/me")
@@ -1167,7 +1191,7 @@ async def read_uploaded_file(
         )
     
     return FileResponse(file_path)
-    
+
 
 @router.get("/status/submissions/{submission_id}/files/arranged/{file_id}")
 async def read_arranged_file(

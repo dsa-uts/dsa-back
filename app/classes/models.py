@@ -124,6 +124,21 @@ class BatchSubmission(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     ts = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
     user_id = Column(String(255), ForeignKey("Users.user_id"))
+    lecture_id = Column(Integer, ForeignKey("Lecture.id"), nullable=False)
+    message = Column(String(255), nullable=True)
+    complete_judge = Column(Integer, nullable=True)
+    total_judge = Column(Integer, nullable=True)
+
+
+class BatchSubmissionSummary(Base):
+    __tablename__ = "BatchSubmissionSummary"
+    batch_id = Column(Integer, ForeignKey("BatchSubmission.id"), primary_key=True, nullable=False)
+    user_id = Column(String(255), ForeignKey("Users.user_id"), primary_key=True, nullable=False)
+    status = Column(Enum("submitted", "delay", "non-submitted"), nullable=False)
+    result = Column(Enum("AC", "WA", "TLE", "MLE", "RE", "CE", "OLE", "IE", "FN"), nullable=True, default=None)
+    upload_dir = Column(String(255), nullable=True, default=None)
+    report_path = Column(String(255), nullable=True, default=None)
+    submit_date = Column(DateTime, nullable=True, default=None)
 
 
 class Submission(Base):
@@ -219,11 +234,3 @@ class SubmissionSummary(Base):
     timeMS = Column(Integer, nullable=False, default=0)
     memoryKB = Column(Integer, nullable=False, default=0)
 
-
-class EvaluationResult(Base):
-    __tablename__ = "EvaluationResult"
-    user_id = Column(String(255), ForeignKey("Users.user_id"), primary_key=True)
-    lecture_id = Column(Integer, ForeignKey("Lecture.id"), primary_key=True)
-    score = Column(Integer, nullable=True)
-    report_path = Column(String(255), nullable=True)
-    comment = Column(String, nullable=True)

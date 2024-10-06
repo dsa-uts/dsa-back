@@ -127,9 +127,35 @@ class ArrangedFileRecord(BaseModel):
 
 
 class BatchSubmissionRecord(BaseModel):
-    id: int
     ts: datetime
     user_id: str
+    lecture_id: int
+    message: str | None = Field(default=None)
+    complete_judge: int | None = Field(default=None)
+    total_judge: int | None = Field(default=None)
+    
+    model_config = {
+        # sqlalchemyのレコードデータからマッピングするための設定
+        "from_attributes": True
+    }
+
+
+# 学生の提出状況のenum
+class StudentSubmissionStatus(Enum):
+    SUBMITTED = "submitted"
+    DELAY = "delay"
+    NON_SUBMITTED = "non-submitted"
+
+
+class BatchSubmissionSummaryRecord(BaseModel):
+    id: int = Field(default=0) # テーブルに挿入時は自動設定されるので、コンストラクタで指定する必要が無いように適当な値を入れている
+    batch_id: int
+    user_id: str
+    status: StudentSubmissionStatus
+    result: SubmissionSummaryStatus | None = Field(default=None)
+    upload_dir: str | None = Field(default=None)
+    report_path: str | None = Field(default=None)
+    submit_date: datetime | None = Field(default=None)
     
     model_config = {
         # sqlalchemyのレコードデータからマッピングするための設定
@@ -314,19 +340,6 @@ class SubmissionSummaryRecord(BaseModel):
     @field_serializer("result")
     def serialize_result(self, result: SubmissionSummaryStatus, _info):
         return result.value
-
-
-class EvaluationResultRecord(BaseModel):
-    user_id: str
-    lecture_id: int
-    score: int | None
-    report_path: str | None
-    comment: str | None
-    
-    model_config = {
-        # sqlalchemyのレコードデータからマッピングするための設定
-        "from_attributes": True
-    }
 
 
 class LoginHistoryRecord(BaseModel):

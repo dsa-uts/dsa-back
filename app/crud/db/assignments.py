@@ -245,29 +245,16 @@ def register_uploaded_file(db: Session, submission_id: int, path: Path) -> None:
 
 
 def register_batch_submission(
-    db: Session, user_id: str
+    db: Session, user_id: str, lecture_id: int
 ) -> schemas.BatchSubmissionRecord:
     """
     バッチ提出をBatchSubmissionテーブルに登録する関数
     """
-    new_batch_submission = models.BatchSubmission(user_id=user_id)
+    new_batch_submission = models.BatchSubmission(user_id=user_id, lecture_id=lecture_id)
     db.add(new_batch_submission)
     db.commit()
     db.refresh(new_batch_submission)
     return schemas.BatchSubmissionRecord.model_validate(new_batch_submission)
-
-
-def register_evaluation_result(
-    db: Session, evaluation_result_record: schemas.EvaluationResultRecord
-) -> None:
-    """
-    評価結果をEvaluationResultテーブルに登録する関数
-    """
-    new_evaluation_result = models.EvaluationResult(
-        **evaluation_result_record.model_dump()
-    )
-    db.add(new_evaluation_result)
-    db.commit()
 
 
 def get_submission_list(
@@ -521,4 +508,43 @@ def register_submission_summary(
     """
     new_submission_summary = models.SubmissionSummary(**submission_summary_record.model_dump(exclude={"evaluation_summary_list"}))
     db.add(new_submission_summary)
+    db.commit()
+
+
+def register_batch_submission_summary(
+    db: Session, batch_submission_summary_record: schemas.BatchSubmissionSummaryRecord
+) -> None:
+    """
+    バッチ採点のジャッジ結果をBatchSubmissionSummaryテーブルに登録する関数
+    """
+    # idは自動採番されるので、モデルに渡さない
+    new_batch_submission_summary = models.BatchSubmissionSummary(**batch_submission_summary_record.model_dump())
+    db.add(new_batch_submission_summary)
+    db.commit()
+
+
+def update_batch_submission_summary(
+    db: Session, batch_submission_summary_record: schemas.BatchSubmissionSummaryRecord
+) -> None:
+    """
+    バッチ採点のジャッジ結果をBatchSubmissionSummaryテーブルに更新する関数
+    """
+    db.query(models.BatchSubmissionSummary).filter(
+        models.BatchSubmissionSummary.batch_id
+        == batch_submission_summary_record.batch_id,
+        models.BatchSubmissionSummary.user_id
+        == batch_submission_summary_record.user_id,
+    ).update(batch_submission_summary_record.model_dump())
+    db.commit()
+
+
+def modify_batch_submission(
+    db: Session, batch_submission_record: schemas.BatchSubmissionRecord
+) -> None:
+    """
+    バッチ採点のジャッジ結果をBatchSubmissionテーブルに更新する関数
+    """
+    db.query(models.BatchSubmission).filter(
+        models.BatchSubmission.id == batch_submission_record.id
+    ).update(batch_submission_record.model_dump())
     db.commit()
