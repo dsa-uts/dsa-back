@@ -1089,7 +1089,7 @@ async def read_uploaded_file_list(
     if type == "uploaded":
         file_list = assignments.get_uploaded_files(db, submission_id)
     elif type == "arranged":
-        file_list = assignments.get_arranged_files(db, submission_id)
+        file_list = assignments.get_arranged_files(db=db, lecture_id=submission_record.lecture_id, assignment_id=submission_record.assignment_id, for_evaluation=submission_record.for_evaluation)
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1104,7 +1104,7 @@ async def read_uploaded_file_list(
     zip_file_path = temp_dir_path / f"{type}_files.zip"
     with zipfile.ZipFile(zip_file_path, "w") as zipf:
         for file in file_list:
-            file_path = Path(constant.UPLOAD_DIR) / file.path
+            file_path = Path(constant.UPLOAD_DIR) / file.path if type == "uploaded" else Path(constant.RESOURCE_DIR) / file.path
             zipf.write(file_path, arcname=file_path.name)
     
     return FileResponse(zip_file_path, filename=f"{type}_files.zip", media_type="application/zip", background=BackgroundTask(delete_temp_dir, temp_dir))
