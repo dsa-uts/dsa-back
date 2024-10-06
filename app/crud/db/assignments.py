@@ -311,11 +311,35 @@ def get_batch_submission(
         .filter(models.BatchSubmission.id == batch_id)
         .first()
     )
-    return (
-        schemas.BatchSubmissionRecord.model_validate(batch_submission)
-        if batch_submission is not None
-        else None
+    
+    if batch_submission is None:
+        return None
+    
+    batch_submission_record = schemas.BatchSubmissionRecord.model_validate(batch_submission)
+    
+    # 完了している場合、進捗状況の更新は不要
+    if batch_submission_record.complete_judge == batch_submission_record.total_judge:
+        return batch_submission_record
+    
+    # 進行中の場合、complete_judgeとtotal_judgeを更新する
+    complete_judge = (
+        db.query(models.Submission)
+        .filter(models.Submission.batch_id == batch_id,
+                models.Submission.progress == schemas.SubmissionProgressStatus.DONE.value
+        ).count()
     )
+    
+    total_judge = (
+        db.query(models.Submission)
+        .filter(models.Submission.batch_id == batch_id)
+        .count()
+    )
+    
+    batch_submission_record.complete_judge = complete_judge
+    batch_submission_record.total_judge = total_judge
+    
+    modify_batch_submission(db=db, batch_submission_record=batch_submission_record)
+    return batch_submission_record
 
 
 def get_batch_submission_list(
@@ -331,10 +355,36 @@ def get_batch_submission_list(
         .offset(offset)
         .all()
     )
-    return [
+    
+    batch_submission_record_list = [
         schemas.BatchSubmissionRecord.model_validate(batch_submission)
         for batch_submission in batch_submission_list
     ]
+    
+    for batch_submission in batch_submission_record_list:
+        # 完了している場合、進捗状況の更新は不要
+        if batch_submission.complete_judge == batch_submission.total_judge:
+            continue
+        
+        # 進行中の場合、complete_judgeとtotal_judgeを更新する
+        complete_judge = (
+            db.query(models.Submission)
+            .filter(models.Submission.batch_id == batch_submission.id,
+                    models.Submission.progress == schemas.SubmissionProgressStatus.DONE.value
+            ).count()
+        )
+        
+        total_judge = (
+            db.query(models.Submission)
+            .filter(models.Submission.batch_id == batch_submission.id)
+            .count()
+        )
+        
+        batch_submission.complete_judge = complete_judge
+        batch_submission.total_judge = total_judge
+        modify_batch_submission(db=db, batch_submission_record=batch_submission)
+
+    return batch_submission_record_list
 
 
 def get_submission_list_for_batch(
@@ -461,7 +511,7 @@ def get_arranged_file(
 
 def get_batch_submission_progress(
     db: Session, batch_id: int
-) -> schemas.BatchSubmissionProgress | None:
+) -> schemas.BatchSubmissionRecord | None:
     """
     特定のバッチ採点リクエストについて、
     ID, 提出時間, ユーザIDのほかに、全体のシングルジャッジの数 / 完了したシングルジャッジの数、
@@ -470,35 +520,31 @@ def get_batch_submission_progress(
     batch_submission = get_batch_submission(db=db, batch_id=batch_id)
     if batch_submission is None:
         return None
-
-    # バッチ提出に紐づいたシングルジャッジの数を取得する。
-    entire_submission_count = (
+    
+    # もし、complete_judge=total_judgeであるなら、進捗状況の更新はせず、そのまま返す
+    if batch_submission.complete_judge == batch_submission.total_judge:
+        return batch_submission
+    
+    total_judge = (
         db.query(models.Submission)
         .filter(models.Submission.batch_id == batch_id)
         .count()
     )
-    completed_submission_count = (
+    
+    # そうでないなら、進捗状況を更新する
+    complete_judge = (
         db.query(models.Submission)
-        .filter(
-            models.Submission.batch_id == batch_id,
-            models.Submission.progress == schemas.SubmissionProgressStatus.DONE.value,
-        )
-        .count()
+        .filter(models.Submission.batch_id == batch_id,
+                models.Submission.progress == schemas.SubmissionProgressStatus.DONE.value
+        ).count()
     )
+    
+    batch_submission.complete_judge = complete_judge
+    batch_submission.total_judge = total_judge
+    modify_batch_submission(db=db, batch_submission_record=batch_submission)
 
-    # バッチ採点ステータス(1個もジャッジしていない場合はQueued, 1個以上ジャッジしている場合はRunning, 全てのジャッジが完了した場合はDone)
-    progress_status = schemas.SubmissionProgressStatus.QUEUED
-    if completed_submission_count == entire_submission_count:
-        progress_status = schemas.SubmissionProgressStatus.DONE
-    elif completed_submission_count > 0:
-        progress_status = schemas.SubmissionProgressStatus.RUNNING
+    return batch_submission
 
-    return schemas.BatchSubmissionProgress(
-        **batch_submission.model_dump(),
-        progress=progress_status,
-        completed_judge=completed_submission_count,
-        total_judge=entire_submission_count,
-    )
 
 def register_submission_summary(
     db: Session, submission_summary_record: schemas.SubmissionSummaryRecord

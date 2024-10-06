@@ -818,7 +818,6 @@ async def batch_judge(
             continue
         
         # 提出済みの場合は、ジャッジを行う
-        total_judge += 1
         
         uploaded_filepath_list = [
             p for p in Path(batch_submission_summary_record.upload_dir).iterdir()
@@ -836,6 +835,8 @@ async def batch_judge(
                 assignment_id=problem.assignment_id,
                 for_evaluation=problem.for_evaluation,
             )
+            
+            total_judge += 1
 
             # uploaded_filepath_listの中から、required_file_listに含まれているファイルのみ、
             # UploadedFilesテーブルに登録する
@@ -1285,7 +1286,7 @@ async def read_all_batch_status(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> List[schemas.BatchSubmissionProgress]:
+) -> List[schemas.BatchSubmissionRecord]:
     """
     全てのバッチ採点の進捗状況を取得する
     """
@@ -1296,13 +1297,8 @@ async def read_all_batch_status(
         )
 
     batch_submission_record_list = assignments.get_batch_submission_list(db, limit=20, offset=(page - 1) * 20)
-    
-    batch_submission_progress_list: list[schemas.BatchSubmissionProgress] = [
-        assignments.get_batch_submission_progress(db, batch_submission_record.id)
-        for batch_submission_record in batch_submission_record_list
-    ]
 
-    return batch_submission_progress_list
+    return batch_submission_record_list
 
 
 @router.get("/status/batch/{batch_id}")
@@ -1313,7 +1309,7 @@ async def read_batch_status(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> schemas.BatchSubmissionProgress:
+) -> schemas.BatchSubmissionRecord:
     """
     バッチ採点の進捗状況を取得する
     """
@@ -1432,7 +1428,7 @@ async def read_submission_summary_detail(
     return submission_summary
 
 
-@router.get("/result/batch/{batch_id}", response_model=Dict[int, schemas.SubmissionSummaryRecord | None])
+@router.get("/result/batch/{batch_id}", response_model=list[schemas.SubmissionSummaryRecord])
 async def read_submission_summary_list_for_batch(
     batch_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -1440,7 +1436,7 @@ async def read_submission_summary_list_for_batch(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> Dict[int, schemas.SubmissionSummaryRecord | None]:
+) -> list[schemas.SubmissionSummaryRecord]:
     """
     特定のバッチ採点のジャッジ結果を取得する
     
@@ -1453,13 +1449,20 @@ async def read_submission_summary_list_for_batch(
             detail="バッチ採点エントリが見つかりません",
         )
 
+    if batch_submission_record.complete_judge != batch_submission_record.total_judge:
+        # 完了していない場合は、詳細は取得できない
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="バッチ採点が完了していません",
+        )
+
     # バッチ提出に含まれた提出エントリを取得する
     submission_entry_list = assignments.get_submission_list_for_batch(db, batch_id)
 
     # 各提出エントリのジャッジ結果を取得する
-    submission_summary_list = {
-        submission_entry.id: assignments.get_submission_summary(db, submission_entry.id)
+    submission_summary_list = [
+        assignments.get_submission_summary(db, submission_entry.id)
         for submission_entry in submission_entry_list
-    }
+    ]
 
     return submission_summary_list

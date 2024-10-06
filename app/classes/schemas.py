@@ -127,6 +127,7 @@ class ArrangedFileRecord(BaseModel):
 
 
 class BatchSubmissionRecord(BaseModel):
+    id: int
     ts: datetime
     user_id: str
     lecture_id: int
@@ -148,7 +149,6 @@ class StudentSubmissionStatus(Enum):
 
 
 class BatchSubmissionSummaryRecord(BaseModel):
-    id: int = Field(default=0) # テーブルに挿入時は自動設定されるので、コンストラクタで指定する必要が無いように適当な値を入れている
     batch_id: int
     user_id: str
     status: StudentSubmissionStatus
@@ -456,17 +456,6 @@ class JudgeProgressAndStatus(BaseModel):
     score: int | None
     timeMS: int | None
     memoryKB: int | None
-
-
-# バッチ採点リクエストの進捗状況を取得するためのスキーマ
-class BatchSubmissionProgress(BaseModel):
-    id: int # batch_submission.id
-    ts: datetime # batch_submission.ts
-    user_id: str # batch_submission.user_id
-    # BatchSubmissionのレコードから新しく追加するフィールド
-    progress: SubmissionProgressStatus # batch_submission.progress
-    completed_judge: int # シングルジャッジの完了数
-    total_judge: int # シングルジャッジの総数
 
 
 # アップロードされたファイルのリスト、およびアレンジされたファイルのリストを取得するためのスキーマ
