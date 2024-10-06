@@ -1,7 +1,7 @@
 from ....crud.db import assignments, users
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from ....dependencies import get_db, get_temporary_directory
+from ....dependencies import get_db
 from ....classes import schemas
 from typing import List, Optional, Dict, Literal
 from datetime import datetime
@@ -20,6 +20,7 @@ import re
 from app.api.api_v1.endpoints import assignments_util
 from pydantic import BaseModel
 import pandas as pd
+from starlette.background import BackgroundTask
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -58,6 +59,10 @@ def access_sanitize(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="評価問題を取得する権限がありません",
             )
+
+
+def delete_temp_dir(temp_dir: tempfile.TemporaryDirectory):
+    temp_dir.cleanup()
 
 
 def get_zip_file_size(path: Path) -> int:
@@ -627,7 +632,6 @@ async def batch_judge(
     lecture_id: int,
     evaluation: bool,  # 評価問題かどうか
     db: Annotated[Session, Depends(get_db)],
-    workspace_dir: Annotated[Path, Depends(get_temporary_directory)],
     current_user: Annotated[
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
@@ -682,13 +686,16 @@ async def batch_judge(
 
     batch_id = batch_submission_record.id
     total_judge = 0 # 採点対象の学生の数 (未提出でない学生の数)
+    
+    workspace_dir = tempfile.TemporaryDirectory()
+    workspace_dir_path = Path(workspace_dir.name)
 
     # アップロードされたzipファイルをworkspace_dirに展開する
     with zipfile.ZipFile(uploaded_zip_file.file, "r") as zip_ref:
-        zip_ref.extractall(workspace_dir)
+        zip_ref.extractall(workspace_dir_path)
 
     # 展開先のディレクトリで、フォルダが一個しかない
-    current_dir = workspace_dir
+    current_dir = workspace_dir_path
     if len(list(current_dir.iterdir())) == 1 and list(current_dir.iterdir())[0].is_dir():
         current_dir = list(current_dir.iterdir())[0]
 
@@ -717,6 +724,7 @@ async def batch_judge(
 
     if report_list_df is None:
         # reportlist.xlsxもreportlist.xlsも存在しない場合は、エラーを返す
+        workspace_dir.cleanup()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="reportlist.xlsxまたはreportlist.xlsが存在しません",
@@ -745,7 +753,7 @@ async def batch_judge(
             error_message += f"{index}行目のユーザがDBに登録されていません: {user_id}\n"
             continue
 
-        if (submission_status is "提出済" or submission_status is "受付終了後提出") and submit_date is None:
+        if (submission_status == "提出済" or submission_status == "受付終了後提出") and submit_date is None:
             error_message += f"{index}行目の提出日時が提出済みであるにも関わらず空です。遅延判定ができません\n"
             continue
 
@@ -864,6 +872,8 @@ async def batch_judge(
     batch_submission_record.complete_judge = 0
     batch_submission_record.total_judge = total_judge
     assignments.modify_batch_submission(db=db, batch_submission_record=batch_submission_record)
+    
+    workspace_dir.cleanup()
 
 
 @router.get("/status/submissions/me")
@@ -1033,12 +1043,11 @@ async def read_submission_status(
     return judge_progress_and_status
 
 
-@router.get("/status/submissions/{submission_id}/files/zip")
+@router.get("/status/submissions/{submission_id}/files/zip", response_class=FileResponse)
 async def read_uploaded_file_list(
     submission_id: int,
     type: Literal["uploaded", "arranged"],
     db: Annotated[Session, Depends(get_db)],
-    temp_dir: Annotated[Path, Depends(get_temporary_directory)],
     current_user: Annotated[
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["me"]),
@@ -1086,15 +1095,19 @@ async def read_uploaded_file_list(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="typeは'uploaded'か'arranged'のみ指定できます",
         )
+        
+    temp_dir = tempfile.TemporaryDirectory()
+        
+    temp_dir_path = Path(temp_dir.name)
     
     # アップロードされたファイルのリストをZIPファイルとして取得する
-    zip_file_path = temp_dir / f"{type}_files.zip"
+    zip_file_path = temp_dir_path / f"{type}_files.zip"
     with zipfile.ZipFile(zip_file_path, "w") as zipf:
         for file in file_list:
             file_path = Path(constant.UPLOAD_DIR) / file.path
             zipf.write(file_path, arcname=file_path.name)
     
-    return FileResponse(zip_file_path)
+    return FileResponse(zip_file_path, filename=f"{type}_files.zip", media_type="application/zip", background=BackgroundTask(delete_temp_dir, temp_dir))
 
 
 # バッチ採点に関しては、ManagerとAdminが全てのバッチ採点の進捗状況を見れるようにしている。
@@ -1328,12 +1341,11 @@ async def read_submission_summary_list_for_batch(
     return batch_evaluation_detail
 
 
-@router.get("/result/batch/{batch_id}/files/uploaded/{user_id}")
+@router.get("/result/batch/{batch_id}/files/uploaded/{user_id}", response_class=FileResponse)
 async def fetch_uploaded_files_of_batch(
     batch_id: int,
     user_id: str,
     db: Annotated[Session, Depends(get_db)],
-    temp_dir: Annotated[Path, Depends(get_temporary_directory)],
     current_user: Annotated[
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
@@ -1366,17 +1378,20 @@ async def fetch_uploaded_files_of_batch(
         
     upload_dir_path = Path(constant.UPLOAD_DIR) / upload_dir
     
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_path = Path(temp_dir.name)
+    
     # upload_dirのファイルの内容をtemp_dirに置いたZIPファイルに書き込む
-    zip_file_path = temp_dir / f"uploaded_files.zip"
+    zip_file_path = temp_dir_path / f"uploaded_files.zip"
     with zipfile.ZipFile(zip_file_path, "w") as zipf:
         for file_path in upload_dir_path.iterdir():
             if file_path.is_file():
                 zipf.write(file_path, arcname=file_path.name)
     
-    return FileResponse(zip_file_path)
+    return FileResponse(zip_file_path, filename="uploaded_files.zip", media_type="application/zip", background=BackgroundTask(delete_temp_dir, temp_dir))
 
 
-@router.get("/result/batch/{batch_id}/files/report/{user_id}")
+@router.get("/result/batch/{batch_id}/files/report/{user_id}", response_class=FileResponse)
 async def fetch_report_of_batch(
     batch_id: int,
     user_id: str,
@@ -1418,4 +1433,4 @@ async def fetch_report_of_batch(
             detail="バッチ採点エントリのレポートが見つかりません",
         )
 
-    return FileResponse(report_path)
+    return FileResponse(report_path, filename=report_path.name, media_type="application/pdf")

@@ -7,8 +7,3 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def get_temporary_directory():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        yield Path(temp_dir)
