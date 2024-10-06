@@ -49,7 +49,7 @@ async def login_for_access_token(
     user = authenticate_user(
         db=db, username=form_data.username, plain_password=form_data.password
     )
-    if not user:
+    if user is False:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect user_id or password",
