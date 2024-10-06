@@ -491,6 +491,35 @@ class UploadedFileRecord(BaseModel):
     }
 
 
+class EvaluationDetail(BaseModel):
+    user_id: str
+    status: StudentSubmissionStatus
+    result: SubmissionSummaryStatus | None = Field(default=None)
+    uploaded_file_url: str | None = Field(default=None)
+    report_url: str | None = Field(default=None)
+    submit_date: datetime | None = Field(default=None)
+    submission_summary_list: list[SubmissionSummaryRecord] = Field(default_factory=list)
+    
+    @field_serializer("status")
+    def serialize_status(self, status: StudentSubmissionStatus, _info):
+        return status.value
+    
+    @field_serializer("result")
+    def serialize_result(self, result: SubmissionSummaryStatus, _info):
+        return result.value
+
+
+class BatchEvaluationDetail(BaseModel):
+    batch_id: int
+    ts: datetime
+    user_id: str
+    lecture_id: int
+    message: str | None = Field(default=None)
+    complete_judge: int | None = Field(default=None)
+    total_judge: int | None = Field(default=None)
+    evaluation_detail_list: list[EvaluationDetail] = Field(default_factory=list)
+
+
 class UserView(BaseModel):
     user_id: str
     username: str

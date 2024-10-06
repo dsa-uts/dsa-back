@@ -594,3 +594,34 @@ def modify_batch_submission(
         models.BatchSubmission.id == batch_submission_record.id
     ).update(batch_submission_record.model_dump())
     db.commit()
+
+
+def get_batch_submission_summary_list(
+    db: Session, batch_id: int
+) -> List[schemas.BatchSubmissionSummaryRecord]:
+    """
+    バッチ採点のジャッジ結果をBatchSubmissionSummaryテーブルに取得する関数
+    """
+    batch_submission_summary_list = (
+        db.query(models.BatchSubmissionSummary).filter(models.BatchSubmissionSummary.batch_id == batch_id).all()
+    )
+    return [
+        schemas.BatchSubmissionSummaryRecord.model_validate(batch_submission_summary)
+        for batch_submission_summary in batch_submission_summary_list
+    ]
+
+
+def get_batch_submission_summary(
+    db: Session, batch_id: int, user_id: str
+) -> schemas.BatchSubmissionSummaryRecord | None:
+    """
+    特定のバッチ採点のジャッジ結果をBatchSubmissionSummaryテーブルに取得する関数
+    """
+    batch_submission_summary = (
+        db.query(models.BatchSubmissionSummary).filter(models.BatchSubmissionSummary.batch_id == batch_id, models.BatchSubmissionSummary.user_id == user_id).first()
+    )
+    return (
+        schemas.BatchSubmissionSummaryRecord.model_validate(batch_submission_summary)
+        if batch_submission_summary is not None
+        else None
+    )

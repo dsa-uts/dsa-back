@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from ....dependencies import get_db, get_temporary_directory
 from ....classes import schemas
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Literal
 from datetime import datetime
 from pytz import timezone
 from fastapi import UploadFile, File, HTTPException, Security, status
@@ -858,6 +858,8 @@ async def batch_judge(
                 db=db, submission_record=submission_record
             )
     
+    # エラーメッセージを設定する
+    batch_submission_record.message = error_message
     # total_judgeの値を更新する
     batch_submission_record.complete_judge = 0
     batch_submission_record.total_judge = total_judge
@@ -1031,17 +1033,19 @@ async def read_submission_status(
     return judge_progress_and_status
 
 
-@router.get("/status/submissions/{submission_id}/files")
-async def read_file_list(
+@router.get("/status/submissions/{submission_id}/files/zip")
+async def read_uploaded_file_list(
     submission_id: int,
+    type: Literal["uploaded", "arranged"],
     db: Annotated[Session, Depends(get_db)],
+    temp_dir: Annotated[Path, Depends(get_temporary_directory)],
     current_user: Annotated[
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["me"]),
     ],
-) -> List[schemas.FileRecord]:
+) -> FileResponse:
     """
-    特定の提出のファイルのリストを取得する
+    特定の提出のファイルのアップロードされたファイルをZIPファイルとして取得する
     """
     submission_record = assignments.get_submission(db, submission_id)
     if submission_record is None:
@@ -1073,206 +1077,24 @@ async def read_file_list(
             )
     
     # アップロードされたファイルのリストを取得する
-    uploaded_files = assignments.get_uploaded_files(db, submission_id)
-    
-    file_record_list = []
-    for uploaded_file in uploaded_files:
-        file_path = Path(constant.UPLOAD_DIR) / uploaded_file.path
-        if not file_path.exists():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="アップロードされたファイルが見つかりません",
-            )
-        
-        # ファイルサイズが50KB以下の場合は、テキストデータとして取得し、レスポンスに含める
-        if file_path.stat().st_size <= 50 * 1024:
-            with open(file_path, "r") as f:
-                text = f.read()
-            file_record = schemas.FileRecord(
-                name=Path(uploaded_file.path).name,
-                type="uploaded",
-                text=text
-            )
-            file_record_list.append(file_record)
-        else:
-            # ファイルサイズが50KB以上の場合は、ファイルのURLをレスポンスに含める
-            file_record = schemas.FileRecord(
-                name=Path(uploaded_file.path).name,
-                type="uploaded",
-                url=f"assignments/status/submissions/{submission_id}/files/uploaded/{uploaded_file.id}"
-            )
-            file_record_list.append(file_record)
-        
-    # アレンジされたファイルのリストを取得する
-    arranged_files = assignments.get_arranged_files(
-        db=db, 
-        lecture_id=submission_record.lecture_id, 
-        assignment_id=submission_record.assignment_id, 
-        for_evaluation=submission_record.for_evaluation
-    )
-    
-    for arranged_file in arranged_files:
-        file_path = Path(constant.RESOURCE_DIR) / arranged_file.path
-        if not file_path.exists():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="アレンジされたファイルが見つかりません",
-            )
-        
-        # ファイルサイズが50KB以下の場合は、テキストデータとして取得し、レスポンスに含める
-        if file_path.stat().st_size <= 50 * 1024:
-            with open(file_path, "r") as f:
-                text = f.read()
-            file_record = schemas.FileRecord(
-                name=Path(arranged_file.path).name,
-                type="arranged",
-                text=text
-            )
-            file_record_list.append(file_record)
-        else:
-            # ファイルサイズが50KB以上の場合は、ファイルのURLをレスポンスに含める
-            file_record = schemas.FileRecord(
-                name=Path(arranged_file.path).name,
-                type="arranged",
-                url=f"assignments/status/submissions/{submission_id}/files/arranged/{arranged_file.str_id}"
-            )
-            file_record_list.append(file_record)
-    
-    return file_record_list
-
-
-@router.get("/status/submissions/{submission_id}/files/uploaded/{file_id}")
-async def read_uploaded_file(
-    submission_id: int,
-    file_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[
-        schemas.UserRecord,
-        Security(authenticate_util.get_current_active_user, scopes=["me"]),
-    ],
-) -> FileResponse:
-    """
-    特定の提出のアップロードされたファイルを取得する
-    """
-    
-    submission_record = assignments.get_submission(db, submission_id)
-    if submission_record is None:
+    if type == "uploaded":
+        file_list = assignments.get_uploaded_files(db, submission_id)
+    elif type == "arranged":
+        file_list = assignments.get_arranged_files(db, submission_id)
+    else:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="提出エントリが見つかりません",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="typeは'uploaded'か'arranged'のみ指定できます",
         )
     
-    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
-        # ユーザがAdmin, Managerでない場合は、ログインユーザの提出のみ取得できる
-        if submission_record.user_id != current_user.user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="ログインユーザの提出ではありません",
-            )
-        
-        # バッチ採点に紐づいた提出は取得できない
-        if submission_record.batch_id is not None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="バッチ採点に紐づいた提出は取得できません",
-            )
-        
-        # 評価問題の提出は取得できない
-        if submission_record.for_evaluation:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="評価問題の提出は取得できません",
-            )
+    # アップロードされたファイルのリストをZIPファイルとして取得する
+    zip_file_path = temp_dir / f"{type}_files.zip"
+    with zipfile.ZipFile(zip_file_path, "w") as zipf:
+        for file in file_list:
+            file_path = Path(constant.UPLOAD_DIR) / file.path
+            zipf.write(file_path, arcname=file_path.name)
     
-    uploaded_file_record = assignments.get_uploaded_file(db, file_id)
-    if uploaded_file_record is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="アップロードファイルエントリが見つかりません",
-        )
-    
-    if uploaded_file_record.submission_id != submission_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="提出IDが一致しません",
-        )
-    
-    file_path = Path(constant.UPLOAD_DIR) / uploaded_file_record.path
-    if not file_path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="アップロードされたファイルが見つかりません",
-        )
-    
-    return FileResponse(file_path)
-
-
-@router.get("/status/submissions/{submission_id}/files/arranged/{file_id}")
-async def read_arranged_file(
-    submission_id: int,
-    file_id: str,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[
-        schemas.UserRecord,
-        Security(authenticate_util.get_current_active_user, scopes=["me"]),
-    ],
-) -> schemas.TextDataResponse:
-    """
-    特定の提出のアレンジされたファイルを取得する
-    """
-    
-    submission_record = assignments.get_submission(db, submission_id)
-    if submission_record is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="提出エントリが見つかりません",
-        )
-    
-    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
-        # ユーザがAdmin, Managerでない場合は、ログインユーザの提出のみ取得できる
-        if submission_record.user_id != current_user.user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="ログインユーザの提出ではありません",
-            )
-        
-        # バッチ採点に紐づいた提出は取得できない
-        if submission_record.batch_id is not None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="バッチ採点に紐づいた提出は取得できません",
-            )
-        
-        # 評価問題の提出は取得できない
-        if submission_record.for_evaluation:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="評価問題の提出は取得できません",
-            )
-    
-    arranged_file_record = assignments.get_arranged_file(db, file_id)
-    if arranged_file_record is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="アレンジされたファイルエントリが見つかりません",
-        )
-    
-    if arranged_file_record.lecture_id != submission_record.lecture_id or \
-        arranged_file_record.assignment_id != submission_record.assignment_id or \
-        arranged_file_record.for_evaluation != submission_record.for_evaluation:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="提出IDが一致しません",
-        )
-
-    file_path = Path(constant.RESOURCE_DIR) / arranged_file_record.path
-    if not file_path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="アレンジされたファイルが見つかりません",
-        )
-
-    return FileResponse(file_path)
+    return FileResponse(zip_file_path)
 
 
 # バッチ採点に関しては、ManagerとAdminが全てのバッチ採点の進捗状況を見れるようにしている。
@@ -1428,7 +1250,7 @@ async def read_submission_summary_detail(
     return submission_summary
 
 
-@router.get("/result/batch/{batch_id}", response_model=list[schemas.SubmissionSummaryRecord])
+@router.get("/result/batch/{batch_id}", response_model=schemas.BatchEvaluationDetail)
 async def read_submission_summary_list_for_batch(
     batch_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -1436,7 +1258,7 @@ async def read_submission_summary_list_for_batch(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> list[schemas.SubmissionSummaryRecord]:
+) -> schemas.BatchEvaluationDetail:
     """
     特定のバッチ採点のジャッジ結果を取得する
     
@@ -1459,10 +1281,141 @@ async def read_submission_summary_list_for_batch(
     # バッチ提出に含まれた提出エントリを取得する
     submission_entry_list = assignments.get_submission_list_for_batch(db, batch_id)
 
-    # 各提出エントリのジャッジ結果を取得する
-    submission_summary_list = [
-        assignments.get_submission_summary(db, submission_entry.id)
-        for submission_entry in submission_entry_list
-    ]
+    # user_id -> list[schemas.SubmissionSummaryRecord]の辞書を作成する
+    submission_summary_dict: dict[str, list[schemas.SubmissionSummaryRecord]] = {}
+    for submission_entry in submission_entry_list:
+        if submission_entry.user_id not in submission_summary_dict:
+            submission_summary_dict[submission_entry.user_id] = []
+        else:
+            submission_summary = assignments.get_submission_summary(db, submission_entry.id)
+            if submission_summary is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="提出エントリのジャッジ結果が見つかりません",
+                )
+            submission_summary_dict[submission_entry.user_id].append(submission_summary)
 
-    return submission_summary_list
+
+    # 集計する
+    batch_evaluation_detail = schemas.BatchEvaluationDetail(
+        batch_id=batch_id,
+        ts=batch_submission_record.ts,
+        user_id=batch_submission_record.user_id,
+        lecture_id=batch_submission_record.lecture_id,
+        message=batch_submission_record.message,
+        complete_judge=batch_submission_record.complete_judge,
+        total_judge=batch_submission_record.total_judge
+    )
+    
+    batch_submission_summary_list = assignments.get_batch_submission_summary_list(db, batch_id)
+    evaluation_detail_list = []
+    
+    for batch_submission_summary in batch_submission_summary_list:
+        evaluation_detail = schemas.EvaluationDetail(
+            user_id=batch_submission_summary.user_id,
+            status=batch_submission_summary.status,
+            result=batch_submission_summary.result,
+            # TODO: アップロードされたファイルをZIPで取得するAPIを作成する
+            uploaded_file_url=f"/assignments/batch/{batch_id}/files/uploaded/{batch_submission_summary.user_id}",
+            # TODO: レポートを取得するAPIを作成する
+            report_url=f"/assignments/batch/{batch_id}/files/report/{batch_submission_summary.user_id}",
+            submit_date=batch_submission_summary.submit_date,
+            submission_summary_list=submission_summary_dict[batch_submission_summary.user_id]
+        )
+        evaluation_detail_list.append(evaluation_detail)
+
+    batch_evaluation_detail.evaluation_detail_list = evaluation_detail_list
+    return batch_evaluation_detail
+
+
+@router.get("/result/batch/{batch_id}/files/uploaded/{user_id}")
+async def fetch_uploaded_files_of_batch(
+    batch_id: int,
+    user_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    temp_dir: Annotated[Path, Depends(get_temporary_directory)],
+    current_user: Annotated[
+        schemas.UserRecord,
+        Security(authenticate_util.get_current_active_user, scopes=["batch"]),
+    ],
+) -> FileResponse:
+    """
+    特定のバッチ採点のアップロードされたファイルを取得する
+    """
+    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="バッチ採点のアップロードされたファイルは取得できません",
+        )
+    
+    # BatchSubmissionSummaryのupload_dirを取得する
+    batch_submission_summary = assignments.get_batch_submission_summary(db, batch_id, user_id)
+    if batch_submission_summary is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="バッチ採点エントリのアップロードされたファイルが見つかりません",
+        )
+    
+    upload_dir = batch_submission_summary.upload_dir
+    
+    if upload_dir is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="バッチ採点エントリのアップロードされたファイルが見つかりません",
+        )
+        
+    upload_dir_path = Path(constant.UPLOAD_DIR) / upload_dir
+    
+    # upload_dirのファイルの内容をtemp_dirに置いたZIPファイルに書き込む
+    zip_file_path = temp_dir / f"uploaded_files.zip"
+    with zipfile.ZipFile(zip_file_path, "w") as zipf:
+        for file_path in upload_dir_path.iterdir():
+            if file_path.is_file():
+                zipf.write(file_path, arcname=file_path.name)
+    
+    return FileResponse(zip_file_path)
+
+
+@router.get("/result/batch/{batch_id}/files/report/{user_id}")
+async def fetch_report_of_batch(
+    batch_id: int,
+    user_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        schemas.UserRecord,
+        Security(authenticate_util.get_current_active_user, scopes=["batch"]),
+    ],
+) -> FileResponse:
+    """
+    特定のバッチ採点のレポートを取得する
+    """
+    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="バッチ採点のレポートは取得できません",
+        )
+    
+    batch_submission_summary = assignments.get_batch_submission_summary(db, batch_id, user_id)
+    if batch_submission_summary is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="バッチ採点エントリのレポートが見つかりません",
+        )
+    
+    report_path = batch_submission_summary.report_path
+    
+    if report_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="バッチ採点エントリのレポートが見つかりません",
+        )
+    
+    report_path = Path(constant.UPLOAD_DIR) / report_path
+    
+    if not report_path.exists() or not report_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="バッチ採点エントリのレポートが見つかりません",
+        )
+
+    return FileResponse(report_path)
