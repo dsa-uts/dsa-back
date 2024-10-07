@@ -234,7 +234,7 @@ async def update_token(
         role=access_token_payload.role
     )
     new_access_token: str = jwt.encode(
-        data=new_access_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
+        payload=new_access_token_payload.model_dump(), key=SECRET_KEY, algorithm=ALGORITHM
     )
 
     # 新しいトークンペアをLoginHistoryに登録 + refresh_countを1加算
