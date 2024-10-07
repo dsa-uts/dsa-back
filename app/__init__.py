@@ -45,15 +45,15 @@ def create_app() -> FastAPI:
         )
 
     # 一時ファイルを削除するミドルウェア
-    @app.middleware("http")
-    async def remove_temp_file(request: Request, call_next):
-        response = await call_next(request)
-        if isinstance(response, FileResponse):
-            try:
-                os.remove(response.path)
-            except Exception as e:
-                logger.error(f"Error deleting temporary file: {str(e)}")
-        return response
+    # @app.middleware("http")
+    # async def remove_temp_file(request: Request, call_next):
+    #     response = await call_next(request)
+    #     if isinstance(response, FileResponse):
+    #         try:
+    #             os.remove(response.path)
+    #         except Exception as e:
+    #             logger.error(f"Error deleting temporary file: {str(e)}")
+    #     return response
 
     app.include_router(api_router, prefix="/api/v1")
     return app

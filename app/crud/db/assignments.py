@@ -245,29 +245,16 @@ def register_uploaded_file(db: Session, submission_id: int, path: Path) -> None:
 
 
 def register_batch_submission(
-    db: Session, user_id: str
+    db: Session, user_id: str, lecture_id: int
 ) -> schemas.BatchSubmissionRecord:
     """
     バッチ提出をBatchSubmissionテーブルに登録する関数
     """
-    new_batch_submission = models.BatchSubmission(user_id=user_id)
+    new_batch_submission = models.BatchSubmission(user_id=user_id, lecture_id=lecture_id)
     db.add(new_batch_submission)
     db.commit()
     db.refresh(new_batch_submission)
     return schemas.BatchSubmissionRecord.model_validate(new_batch_submission)
-
-
-def register_evaluation_result(
-    db: Session, evaluation_result_record: schemas.EvaluationResultRecord
-) -> None:
-    """
-    評価結果をEvaluationResultテーブルに登録する関数
-    """
-    new_evaluation_result = models.EvaluationResult(
-        **evaluation_result_record.model_dump()
-    )
-    db.add(new_evaluation_result)
-    db.commit()
 
 
 def get_submission_list(
@@ -324,11 +311,35 @@ def get_batch_submission(
         .filter(models.BatchSubmission.id == batch_id)
         .first()
     )
-    return (
-        schemas.BatchSubmissionRecord.model_validate(batch_submission)
-        if batch_submission is not None
-        else None
+    
+    if batch_submission is None:
+        return None
+    
+    batch_submission_record = schemas.BatchSubmissionRecord.model_validate(batch_submission)
+    
+    # 完了している場合、進捗状況の更新は不要
+    if batch_submission_record.complete_judge == batch_submission_record.total_judge:
+        return batch_submission_record
+    
+    # 進行中の場合、complete_judgeとtotal_judgeを更新する
+    complete_judge = (
+        db.query(models.Submission)
+        .filter(models.Submission.batch_id == batch_id,
+                models.Submission.progress == schemas.SubmissionProgressStatus.DONE.value
+        ).count()
     )
+    
+    total_judge = (
+        db.query(models.Submission)
+        .filter(models.Submission.batch_id == batch_id)
+        .count()
+    )
+    
+    batch_submission_record.complete_judge = complete_judge
+    batch_submission_record.total_judge = total_judge
+    
+    modify_batch_submission(db=db, batch_submission_record=batch_submission_record)
+    return batch_submission_record
 
 
 def get_batch_submission_list(
@@ -344,10 +355,36 @@ def get_batch_submission_list(
         .offset(offset)
         .all()
     )
-    return [
+    
+    batch_submission_record_list = [
         schemas.BatchSubmissionRecord.model_validate(batch_submission)
         for batch_submission in batch_submission_list
     ]
+    
+    for batch_submission in batch_submission_record_list:
+        # 完了している場合、進捗状況の更新は不要
+        if batch_submission.complete_judge == batch_submission.total_judge:
+            continue
+        
+        # 進行中の場合、complete_judgeとtotal_judgeを更新する
+        complete_judge = (
+            db.query(models.Submission)
+            .filter(models.Submission.batch_id == batch_submission.id,
+                    models.Submission.progress == schemas.SubmissionProgressStatus.DONE.value
+            ).count()
+        )
+        
+        total_judge = (
+            db.query(models.Submission)
+            .filter(models.Submission.batch_id == batch_submission.id)
+            .count()
+        )
+        
+        batch_submission.complete_judge = complete_judge
+        batch_submission.total_judge = total_judge
+        modify_batch_submission(db=db, batch_submission_record=batch_submission)
+
+    return batch_submission_record_list
 
 
 def get_submission_list_for_batch(
@@ -470,3 +507,145 @@ def get_arranged_file(
         if arranged_file is not None
         else None
     )
+
+
+def get_batch_submission_progress(
+    db: Session, batch_id: int
+) -> schemas.BatchSubmissionRecord | None:
+    """
+    特定のバッチ採点リクエストについて、
+    ID, 提出時間, ユーザIDのほかに、全体のシングルジャッジの数 / 完了したシングルジャッジの数、
+    採点ステータス(Queued, Running, Completed)を取得する
+    """
+    batch_submission = get_batch_submission(db=db, batch_id=batch_id)
+    if batch_submission is None:
+        return None
+    
+    # もし、complete_judge=total_judgeであるなら、進捗状況の更新はせず、そのまま返す
+    if batch_submission.complete_judge == batch_submission.total_judge:
+        return batch_submission
+    
+    total_judge = (
+        db.query(models.Submission)
+        .filter(models.Submission.batch_id == batch_id)
+        .count()
+    )
+    
+    # そうでないなら、進捗状況を更新する
+    complete_judge = (
+        db.query(models.Submission)
+        .filter(models.Submission.batch_id == batch_id,
+                models.Submission.progress == schemas.SubmissionProgressStatus.DONE.value
+        ).count()
+    )
+    
+    batch_submission.complete_judge = complete_judge
+    batch_submission.total_judge = total_judge
+    modify_batch_submission(db=db, batch_submission_record=batch_submission)
+
+    return batch_submission
+
+
+def register_submission_summary(
+    db: Session, submission_summary_record: schemas.SubmissionSummaryRecord
+) -> None:
+    """
+    提出エントリのジャッジ結果をSubmissionSummaryテーブルに登録する関数
+    """
+    new_submission_summary = models.SubmissionSummary(**submission_summary_record.model_dump(exclude={"evaluation_summary_list"}))
+    db.add(new_submission_summary)
+    db.commit()
+
+
+def register_batch_submission_summary(
+    db: Session, batch_submission_summary_record: schemas.BatchSubmissionSummaryRecord
+) -> None:
+    """
+    バッチ採点のジャッジ結果をBatchSubmissionSummaryテーブルに登録する関数
+    """
+    # idは自動採番されるので、モデルに渡さない
+    new_batch_submission_summary = models.BatchSubmissionSummary(**batch_submission_summary_record.model_dump())
+    db.add(new_batch_submission_summary)
+    db.commit()
+
+
+def update_batch_submission_summary(
+    db: Session, batch_submission_summary_record: schemas.BatchSubmissionSummaryRecord
+) -> None:
+    """
+    バッチ採点のジャッジ結果をBatchSubmissionSummaryテーブルに更新する関数
+    """
+    db.query(models.BatchSubmissionSummary).filter(
+        models.BatchSubmissionSummary.batch_id
+        == batch_submission_summary_record.batch_id,
+        models.BatchSubmissionSummary.user_id
+        == batch_submission_summary_record.user_id,
+    ).update(batch_submission_summary_record.model_dump())
+    db.commit()
+
+
+def modify_batch_submission(
+    db: Session, batch_submission_record: schemas.BatchSubmissionRecord
+) -> None:
+    """
+    バッチ採点のジャッジ結果をBatchSubmissionテーブルに更新する関数
+    """
+    db.query(models.BatchSubmission).filter(
+        models.BatchSubmission.id == batch_submission_record.id
+    ).update(batch_submission_record.model_dump())
+    db.commit()
+
+
+def get_batch_submission_summary_list(
+    db: Session, batch_id: int
+) -> List[schemas.BatchSubmissionSummaryRecord]:
+    """
+    バッチ採点のジャッジ結果をBatchSubmissionSummaryテーブルに取得する関数
+    """
+    batch_submission_summary_list = (
+        db.query(models.BatchSubmissionSummary).filter(models.BatchSubmissionSummary.batch_id == batch_id).all()
+    )
+    return [
+        schemas.BatchSubmissionSummaryRecord.model_validate(batch_submission_summary)
+        for batch_submission_summary in batch_submission_summary_list
+    ]
+
+
+def get_batch_submission_summary(
+    db: Session, batch_id: int, user_id: str
+) -> schemas.BatchSubmissionSummaryRecord | None:
+    """
+    特定のバッチ採点のジャッジ結果をBatchSubmissionSummaryテーブルに取得する関数
+    """
+    batch_submission_summary = (
+        db.query(models.BatchSubmissionSummary).filter(models.BatchSubmissionSummary.batch_id == batch_id, models.BatchSubmissionSummary.user_id == user_id).first()
+    )
+    return (
+        schemas.BatchSubmissionSummaryRecord.model_validate(batch_submission_summary)
+        if batch_submission_summary is not None
+        else None
+    )
+
+
+def get_batch_user_detail(
+    db: Session, batch_id: int, user_id: str
+) -> schemas.BatchSubmissionSummaryRecord | None:
+    """
+    特定のバッチ採点のジャッジ結果をBatchSubmissionSummaryテーブルに取得する関数
+    """
+    batch_submission_summary = (
+        db.query(models.BatchSubmissionSummary).filter(models.BatchSubmissionSummary.batch_id == batch_id, models.BatchSubmissionSummary.user_id == user_id).first()
+    )
+    return schemas.BatchSubmissionSummaryRecord.model_validate(batch_submission_summary) if batch_submission_summary is not None else None
+
+
+def get_submission_summary_list_for_batch_user(
+    db: Session, batch_id: int, user_id: str
+) -> List[schemas.SubmissionSummaryRecord]:
+    """
+    特定のバッチ採点のジャッジ結果をSubmissionSummaryテーブルに取得する関数
+    """
+    submission_summary_list = (
+        db.query(models.SubmissionSummary).filter(models.SubmissionSummary.batch_id == batch_id, models.SubmissionSummary.user_id == user_id).all()
+    )
+    return [schemas.SubmissionSummaryRecord.model_validate(submission_summary) for submission_summary in submission_summary_list]
