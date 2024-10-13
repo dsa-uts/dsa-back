@@ -7,12 +7,6 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 
 
-class Message(BaseModel):
-    message: str
-
-    model_config = {"extra": "allow"}
-
-
 class SubmissionProgressStatus(Enum):
     PENDING = "pending"
     QUEUED = "queued"
@@ -235,6 +229,10 @@ class BatchSubmissionSummary(BaseModel):
     @field_serializer("result")
     def serialize_result(self, result: SubmissionSummaryStatus, _info):
         return result.value if result is not None else None
+    
+    @field_serializer("submit_date")
+    def serialize_submit_date(self, submit_date: datetime | None, _info):
+        return submit_date.isoformat() if submit_date is not None else None
 
 
 class Submission(BaseModel):
@@ -390,20 +388,7 @@ class UserCreate(BaseModel):
 class UserDelete(BaseModel):
     user_ids: List[str]
 
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-    login_time: datetime
-    user_id: str
-    role: Role
-    refresh_count: int = Field(default=0)
-
-    @field_serializer("role")
-    def serialize_role(self, role: Role, _info):
-        return role.value
-
-
+# JWTトークンのペイロード({"sub": ..., "login": ...,...)})
 class JWTTokenPayload(BaseModel):
     sub: str = Field(max_length=255)
     login: datetime
@@ -424,103 +409,3 @@ class JWTTokenPayload(BaseModel):
     @field_serializer("role")
     def serialize_role(self, role: Role, _info):
         return role.value
-
-
-class TokenValidateResponse(BaseModel):
-    is_valid: bool
-
-
-class TextDataResponse(BaseModel):
-    text: str
-
-
-# 提出の進捗状況と結果を取得するためのスキーマ
-class JudgeProgressAndStatus(BaseModel):
-    id: int  # submission.id
-    ts: datetime  # submission.ts
-    user_id: str  # submission.user_id
-    lecture_id: int  # submission.lecture_id
-    assignment_id: int  # submission.assignment_id
-    for_evaluation: bool  # submission.for_evaluation
-    progress: SubmissionProgressStatus  # submission.progress
-    completed_task: int  # submission.completed_task
-    total_task: int  # submission.total_task
-    result: SubmissionSummaryStatus | None
-    message: str | None
-    score: int | None
-    timeMS: int | None
-    memoryKB: int | None
-
-
-# アップロードされたファイルのリスト、およびアレンジされたファイルのリストを取得するためのスキーマ
-class FileRecord(BaseModel):
-    name: str # ファイル名
-    type: Literal["uploaded", "arranged"] # ファイルの種類
-    url: str | None = Field(default=None) # ファイルのURL(テキストデータでない場合)
-    text: str | None = Field(default=None) # ファイルのテキストデータ(テキストデータの場合)
-    
-
-class ArrangedFileRecord(BaseModel):
-    str_id: str
-    lecture_id: int
-    assignment_id: int
-    for_evaluation: bool
-    path: str
-    
-    model_config = {
-        # sqlalchemyのレコードデータからマッピングするための設定
-        "from_attributes": True
-    }
-
-
-class UploadedFileRecord(BaseModel):
-    id: int
-    ts: datetime
-    submission_id: int
-    path: str
-    
-    model_config = {
-        # sqlalchemyのレコードデータからマッピングするための設定
-        "from_attributes": True
-    }
-
-
-class EvaluationDetail(BaseModel):
-    user_id: str
-    status: StudentSubmissionStatus
-    result: SubmissionSummaryStatus | None = Field(default=None)
-    uploaded_file_url: str | None = Field(default=None)
-    report_url: str | None = Field(default=None)
-    submit_date: datetime | None = Field(default=None)
-    submission_summary_list: list[SubmissionSummary] = Field(default_factory=list)
-    
-    @field_serializer("status")
-    def serialize_status(self, status: StudentSubmissionStatus, _info):
-        return status.value
-    
-    @field_serializer("result")
-    def serialize_result(self, result: SubmissionSummaryStatus, _info):
-        return result.value if result is not None else None
-
-
-class BatchEvaluationDetail(BaseModel):
-    batch_id: int
-    ts: datetime
-    user_id: str
-    lecture_id: int
-    message: str | None = Field(default=None)
-    complete_judge: int | None = Field(default=None)
-    total_judge: int | None = Field(default=None)
-    evaluation_detail_list: list[EvaluationDetail] = Field(default_factory=list)
-
-
-class UserView(BaseModel):
-    user_id: str
-    username: str
-    email: str
-    role: Role
-    disabled: bool
-    created_at: datetime
-    updated_at: datetime
-    active_start_date: datetime
-    active_end_date: datetime
