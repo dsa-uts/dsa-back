@@ -7,182 +7,96 @@ import pytz
 from pathlib import Path
 
 
-def get_lecture_list(db: Session) -> List[schemas.LectureRecord]:
+def get_lecture_list(db: Session) -> List[schemas.Lecture]:
     """
     全ての授業エントリを取得する関数
+    各授業に紐づく問題のリストまで取得する
     """
     lecture_list = db.query(models.Lecture).all()
-    return [schemas.LectureRecord.model_validate(lecture) for lecture in lecture_list]
+    return [
+        # lazy loadingを防ぐために、1-N関係にあるネスト情報をなるべくアクセスしないようにする
+        schemas.Lecture(
+            id=lecture.id,
+            title=lecture.title,
+            start_date=lecture.start_date,
+            end_date=lecture.end_date,
+            problems=[
+                schemas.Problem(
+                    lecture_id=problem.lecture_id,
+                    assignment_id=problem.assignment_id,
+                    title=problem.title,
+                    description_path=problem.description_path,
+                    timeMS=problem.timeMS,
+                    memoryMB=problem.memoryMB,
+                    # problem.test_cases, required_files, arranged_files, executables
+                    # までは読み込まない
+                )
+                for problem in lecture.problems
+            ]
+        )
+        for lecture in lecture_list
+    ]
 
 
-def get_lecture(db: Session, lecture_id: int) -> schemas.LectureRecord | None:
-    """
-    特定の回の授業エントリを取得する関数
-    """
+def get_lecture(db: Session, lecture_id: int) -> schemas.Lecture | None:
     lecture = db.query(models.Lecture).filter(models.Lecture.id == lecture_id).first()
-    return (
-        schemas.LectureRecord.model_validate(lecture) if lecture is not None else None
-    )
+    return schemas.Lecture(
+        id=lecture.id,
+        title=lecture.title,
+        start_date=lecture.start_date,
+        end_date=lecture.end_date,
+    ) if lecture is not None else None
 
 
-def get_problem(
-    db: Session, lecture_id: int, assignment_id: int, for_evaluation: bool
-) -> schemas.ProblemRecord | None:
+def get_problem_detail(
+    db: Session, lecture_id: int, assignment_id: int, eval: bool, detail: bool = False
+) -> schemas.Problem | None:
     """
     特定の授業の特定の課題のエントリを取得する関数
+    
+    detailがTrueの場合、ネスト情報も全て読み込む
     """
     problem = (
         db.query(models.Problem)
         .filter(
             models.Problem.lecture_id == lecture_id,
             models.Problem.assignment_id == assignment_id,
-            models.Problem.for_evaluation == for_evaluation,
         )
         .first()
     )
-    return (
-        schemas.ProblemRecord.model_validate(problem) if problem is not None else None
-    )
-
-
-def get_problem_list(
-    db: Session, lecture_id: int, for_evaluation: bool
-) -> list[schemas.ProblemRecord]:
-    """
-    特定の授業に基づく問題のリストを取得する関数
-    """
-    problem_list = (
-        db.query(models.Problem)
-        .filter(
-            models.Problem.lecture_id == lecture_id,
-            models.Problem.for_evaluation == for_evaluation,
-        )
-        .all()
-    )
-    return [schemas.ProblemRecord.model_validate(problem) for problem in problem_list]
-
-
-def get_evaluation_item_list(
-    db: Session, lecture_id: int, assignment_id: int, for_evaluation: bool
-) -> list[schemas.EvaluationItemRecord]:
-    """
-    特定の課題に基づく評価項目のリストを取得する関数
-    """
-    evaluation_item_list = (
-        db.query(models.EvaluationItems)
-        .filter(
-            models.EvaluationItems.lecture_id == lecture_id,
-            models.EvaluationItems.assignment_id == assignment_id,
-            models.EvaluationItems.for_evaluation == for_evaluation,
-        )
-        .all()
-    )
-    return [
-        schemas.EvaluationItemRecord.model_validate(evaluation_item)
-        for evaluation_item in evaluation_item_list
-    ]
-
-
-def get_evaluation_item(
-    db: Session, eval_id: str
-) -> schemas.EvaluationItemRecord | None:
-    """
-    特定の評価項目のエントリを取得する関数
-    """
-    evaluation_item = (
-        db.query(models.EvaluationItems)
-        .filter(models.EvaluationItems.str_id == eval_id)
-        .first()
-    )
-    return (
-        schemas.EvaluationItemRecord.model_validate(evaluation_item)
-        if evaluation_item is not None
-        else None
-    )
-
-
-def get_test_case_list(db: Session, eval_id: str) -> list[schemas.TestCaseRecord]:
-    """
-    特定の評価項目に基づくテストケースのリストを取得する関数
-    """
-    test_case_list = (
-        db.query(models.TestCases).filter(models.TestCases.eval_id == eval_id).all()
-    )
-    return [
-        schemas.TestCaseRecord.model_validate(test_case) for test_case in test_case_list
-    ]
-
-
-def get_problem_recursive(
-    db: Session, lecture_id: int, assignment_id: int, for_evaluation: bool
-) -> schemas.ProblemRecord | None:
-    """
-    特定の授業の特定の課題のエントリを取得する関数
-
-    課題に紐づく評価項目リストと、評価項目に紐づくテストケースリストも合わせて取得する
-    """
-    problem = (
-        db.query(models.Problem)
-        .filter(
-            models.Problem.lecture_id == lecture_id,
-            models.Problem.assignment_id == assignment_id,
-            models.Problem.for_evaluation == for_evaluation,
-        )
-        .first()
-    )
-
+    
     if problem is None:
         return None
+    
+    # ネスト情報も全て読み込む
+    problem_record = None
+    if detail:
+        problem_record = schemas.Problem.model_validate(problem)
+        if eval is False:
+            # 採点用のリソースをフィルタリングする
+            problem_record.executables = [
+                executable for executable in problem_record.executables
+                if executable.eval is False
+            ]
+            problem_record.arranged_files = [
+                arranged_file for arranged_file in problem_record.arranged_files
+                if arranged_file.eval is False
+            ]
+            problem_record.test_cases = [
+                test_case for test_case in problem_record.test_cases
+                if test_case.eval is False
+            ]
+    else:
+        problem_record = schemas.Problem(
+            lecture_id=problem.lecture_id,
+            assignment_id=problem.assignment_id,
+            title=problem.title,
+            description_path=problem.description_path,
+            timeMS=problem.timeMS,
+            memoryMB=problem.memoryMB,
+        )
 
-    problem_record = schemas.ProblemRecord.model_validate(problem)
-    # problem_record.evaluation_item_listを取得する
-    problem_record.evaluation_item_list = get_evaluation_item_list(
-        db, lecture_id, assignment_id, for_evaluation
-    )
-
-    # evaluation_item_listの各eval_idに基づくtest_case_listを取得する
-    for evaluation_item in problem_record.evaluation_item_list:
-        evaluation_item.testcase_list = get_test_case_list(db, evaluation_item.str_id)
     return problem_record
-
-
-def get_required_files(
-    db: Session, lecture_id: int, assignment_id: int, for_evaluation: bool
-) -> list[str]:
-    """
-    特定の課題に基づく必要ファイルのリストを取得する関数
-    """
-    required_files = (
-        db.query(models.RequiredFiles)
-        .filter(
-            models.RequiredFiles.lecture_id == lecture_id,
-            models.RequiredFiles.assignment_id == assignment_id,
-            models.RequiredFiles.for_evaluation == for_evaluation,
-        )
-        .all()
-    )
-    return [file.name for file in required_files]
-
-
-def get_arranged_files(
-    db: Session, lecture_id: int, assignment_id: int, for_evaluation: bool
-) -> list[schemas.ArrangedFileRecord]:
-    """
-    特定の課題に基づく配置ファイルのリストを取得する関数
-    """
-    arranged_files = (
-        db.query(models.ArrangedFiles)
-        .filter(
-            models.ArrangedFiles.lecture_id == lecture_id,
-            models.ArrangedFiles.assignment_id == assignment_id,
-            models.ArrangedFiles.for_evaluation == for_evaluation,
-        )
-        .all()
-    )
-    return [
-        schemas.ArrangedFileRecord.model_validate(arranged_file)
-        for arranged_file in arranged_files
-    ]
 
 
 def register_submission(
@@ -191,8 +105,8 @@ def register_submission(
     user_id: str,
     lecture_id: int,
     assignment_id: int,
-    for_evaluation: bool,
-) -> schemas.SubmissionRecord:
+    eval: bool,
+) -> schemas.Submission:
     """
     ジャッジリクエストをSubmissionテーブルに登録する関数
     """
@@ -201,15 +115,15 @@ def register_submission(
         user_id=user_id,
         lecture_id=lecture_id,
         assignment_id=assignment_id,
-        for_evaluation=for_evaluation,
+        eval=eval,
     )
     db.add(new_submission)
     db.commit()
     db.refresh(new_submission)
-    return schemas.SubmissionRecord.model_validate(new_submission)
+    return schemas.Submission.model_validate(new_submission)
 
 
-def get_submission(db: Session, submission_id: int) -> schemas.SubmissionRecord | None:
+def get_submission(db: Session, submission_id: int) -> schemas.Submission | None:
     """
     特定の提出エントリを取得する関数
     """
@@ -219,19 +133,19 @@ def get_submission(db: Session, submission_id: int) -> schemas.SubmissionRecord 
         .first()
     )
     return (
-        schemas.SubmissionRecord.model_validate(submission)
+        schemas.Submission.model_validate(submission)
         if submission is not None
         else None
     )
 
 
-def modify_submission(db: Session, submission_record: schemas.SubmissionRecord) -> None:
+def modify_submission(db: Session, submission: schemas.Submission) -> None:
     """
     提出エントリを更新する関数
     """
     db.query(models.Submission).filter(
-        models.Submission.id == submission_record.id
-    ).update(submission_record.model_dump())
+        models.Submission.id == submission.id
+    ).update(submission.model_dump(exclude={"uploaded_files"}))
     db.commit()
 
 
@@ -246,7 +160,7 @@ def register_uploaded_file(db: Session, submission_id: int, path: Path) -> None:
 
 def register_batch_submission(
     db: Session, user_id: str, lecture_id: int
-) -> schemas.BatchSubmissionRecord:
+) -> schemas.BatchSubmission:
     """
     バッチ提出をBatchSubmissionテーブルに登録する関数
     """

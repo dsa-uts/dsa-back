@@ -72,19 +72,10 @@ class Executables(BaseModel):
 
 class ArrangedFiles(BaseModel):
     eval: bool
-    name: str
+    name: str | None = Field(default=None)
     content: str | None = Field(default=None) # ファイルの中身
 
     model_config = {"from_attributes": True}
-    
-    @field_validator("content")
-    def get_content_from_context(cls, value: str | None, info: ValidationInfo) -> str | None:
-        if info.context is not None and "content" in info.context:
-            return info.context["content"]
-        elif value is not None:
-            return value
-        else:
-            raise ValueError("content is not set")
 
 
 class RequiredFiles(BaseModel):
@@ -107,14 +98,6 @@ class TestCases(BaseModel):
     exit_code: int
     
     model_config = {"from_attributes": True}
-    
-    @field_validator("stdin", "stdout", "stderr")
-    def get_from_context(cls, value: str | None, info: ValidationInfo) -> str | None:
-        if info.context is not None and info.field_name in info.context:
-            return info.context[info.field_name]
-        else:
-            # stdin, stdout, stderrが未指定の場合も許容する
-            return value
 
     @field_serializer("type")
     def serialize_type(self, type: EvaluationType, _info):
