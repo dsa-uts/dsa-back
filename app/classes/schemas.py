@@ -244,7 +244,7 @@ class EvaluationStatus(BaseModel):
 class Submission(BaseModel):
     id: int = Field(default=0)
     ts: datetime = Field(default=datetime(year=1998, month=6, day=6))
-    batch_id: int | None = Field(default=None)
+    evaluation_status_id: int | None = Field(default=None)
     user_id: str
     lecture_id: int
     assignment_id: int
