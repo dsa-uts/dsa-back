@@ -214,9 +214,19 @@ async def read_problem_detail(
             )
         )
     
+    # Executablesを読み込む
+    for executable in problem_detail.executables:
+        res.detail.executables.append(
+            response.Executables(
+                eval=executable.eval,
+                name=executable.name
+            )
+        )
+    
     # 各TestCasesのstdin, stdout, stderrを読み込む
     for test_case in problem_detail.test_cases:
         test_case_record = response.TestCases(
+            id=test_case.id,
             eval=test_case.eval,
             type=test_case.type,
             score=test_case.score,
@@ -319,7 +329,7 @@ async def single_judge(
 
     # 提出エントリをキューに登録する
     submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
-    assignments.modify_submission(db=db, submission_record=submission_record)
+    assignments.modify_submission(db=db, submission=submission_record)
 
     return response.Submission.model_validate(submission_record)
 

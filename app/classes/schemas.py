@@ -109,10 +109,10 @@ class Problem(BaseModel):
     timeMS: int
     memoryMB: int
     
-    executables: list["Executables"]
-    arranged_files: list["ArrangedFiles"]
-    required_files: list["RequiredFiles"]
-    test_cases: list["TestCases"]
+    executables: list["Executables"] = Field(default_factory=list)
+    arranged_files: list["ArrangedFiles"] = Field(default_factory=list)
+    required_files: list["RequiredFiles"] = Field(default_factory=list)
+    test_cases: list["TestCases"] = Field(default_factory=list)
     
     model_config = {
         "from_attributes": True

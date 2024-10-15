@@ -1,6 +1,6 @@
 from app.classes import schemas
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from ...classes import models
 from typing import List
 from datetime import datetime
@@ -184,7 +184,7 @@ def modify_submission(db: Session, submission: schemas.Submission) -> None:
     """
     db.query(models.Submission).filter(
         models.Submission.id == submission.id
-    ).update(submission.model_dump(exclude={"uploaded_files", "judge_results"}))
+    ).update(submission.model_dump(exclude={"uploaded_files", "judge_results", "problem"}))
     db.commit()
 
 
@@ -223,8 +223,8 @@ def get_submission_list(
     submission_list = (
         db.query(models.Submission)
         .filter(
-            (models.Submission.eval == False) | (include_eval == True),
-            (user_id is None) | (models.Submission.user_id == user_id)
+            or_(models.Submission.eval == False, include_eval == True),
+            or_(user_id is None, models.Submission.user_id == user_id)
         )
         .order_by(models.Submission.id.desc())
         .limit(limit)
@@ -382,7 +382,7 @@ def get_arranged_files(
         .filter(models.ArrangedFiles.lecture_id == lecture_id, 
                 models.ArrangedFiles.assignment_id == assignment_id, 
                 # 評価用の提出の場合、eval=Trueのものも取得する
-                (eval == False) | (models.ArrangedFiles.eval == eval))
+                or_(eval == False, models.ArrangedFiles.eval == eval))
         .all()
     )
     return [schemas.ArrangedFiles.model_validate(arranged_file) for arranged_file in arranged_files]
