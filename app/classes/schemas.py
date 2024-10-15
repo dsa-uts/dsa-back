@@ -186,13 +186,15 @@ class TestCases(BaseModel):
 
 
 class BatchSubmission(BaseModel):
-    id: int
-    ts: datetime
+    id: int = Field(default=0)
+    ts: datetime = Field(default=datetime(year=1998, month=6, day=6))
     user_id: str
     lecture_id: int
     message: str | None
     complete_judge: int | None
     total_judge: int | None
+    
+    evaluation_statuses: list["EvaluationStatus"] = Field(default_factory=list)
     
     model_config = {
         "from_attributes": True
@@ -209,14 +211,18 @@ class StudentSubmissionStatus(Enum):
     NON_SUBMITTED = "non-submitted"
 
 
-class BatchSubmissionSummary(BaseModel):
+class EvaluationStatus(BaseModel):
+    id: int = Field(default=0)
     batch_id: int
     user_id: str
     status: StudentSubmissionStatus
-    result: SubmissionSummaryStatus | None
-    upload_dir: str | None
-    report_path: str | None
-    submit_date: datetime | None
+    result: SubmissionSummaryStatus | None = Field(default=None)
+    upload_dir: str | None = Field(default=None)
+    report_path: str | None = Field(default=None)
+    submit_date: datetime | None = Field(default=None)
+    
+    # 該当学生の各課題の採点結果のリスト(SubmissionSummaryテーブルから取得)
+    submissions: list["Submission"] = Field(default_factory=list)
     
     model_config = {
         "from_attributes": True
@@ -236,9 +242,9 @@ class BatchSubmissionSummary(BaseModel):
 
 
 class Submission(BaseModel):
-    id: int
-    ts: datetime
-    batch_id: int | None
+    id: int = Field(default=0)
+    ts: datetime = Field(default=datetime(year=1998, month=6, day=6))
+    batch_id: int | None = Field(default=None)
     user_id: str
     lecture_id: int
     assignment_id: int
@@ -246,8 +252,17 @@ class Submission(BaseModel):
     progress: SubmissionProgressStatus
     total_task: int = Field(default=0)
     completed_task: int = Field(default=0)
+    result: SubmissionSummaryStatus | None = Field(default=None)
+    message: str | None = Field(default=None)
+    detail: str | None = Field(default=None)
+    score: int | None = Field(default=None)
+    timeMS: int | None = Field(default=None)
+    memoryKB: int | None = Field(default=None)
+    
+    problem: Problem | None = Field(default=None)
     
     uploaded_files: list["UploadedFiles"] = Field(default_factory=list)
+    judge_results: list["JudgeResult"] = Field(default_factory=list)
 
     model_config = {
         # sqlalchemyのレコードデータからマッピングするための設定
@@ -261,43 +276,20 @@ class Submission(BaseModel):
     @field_serializer("progress")
     def serialize_progress(self, progress: SubmissionProgressStatus, _info):
         return progress.value
+    
+    @field_serializer("result")
+    def serialize_result(self, result: SubmissionSummaryStatus, _info):
+        return result.value if result is not None else None
 
 
 class UploadedFiles(BaseModel):
-    id: int
-    ts: datetime
+    id: int = Field(default=0)
     submission_id: int
     path: str
     
     model_config = {
         "from_attributes": True
     }
-    
-    @field_serializer("ts")
-    def serialize_ts(self, ts: datetime, _info):
-        return ts.isoformat()
-
-
-class SubmissionSummary(BaseModel):
-    submission_id: int
-    batch_id: int | None
-    user_id: str
-    result: SubmissionSummaryStatus
-    message: str | None
-    detail: str | None
-    score: int
-    timeMS: int = Field(default=0)
-    memoryKB: int = Field(default=0)
-    
-    judge_results: list["JudgeResult"] = Field(default_factory=list)
-
-    model_config = {
-        "from_attributes": True
-    }
-    
-    @field_serializer("result")
-    def serialize_result(self, result: SubmissionSummaryStatus, _info):
-        return result.value
 
 
 class JudgeResult(BaseModel):
@@ -311,6 +303,8 @@ class JudgeResult(BaseModel):
     exit_code: int
     stdout: str
     stderr: str
+    
+    testcase: TestCases | None = Field(default=None)
     
     model_config = {
         "from_attributes": True
