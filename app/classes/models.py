@@ -200,7 +200,7 @@ class Submission(Base):
     __tablename__ = "Submission"
     id: Mapped[int] = mapped_column(Integer,primary_key=True, autoincrement=True)
     ts: Mapped[datetime] = mapped_column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
-    evaluation_status_id: Mapped[int] = mapped_column(Integer, ForeignKey("EvaluationStatus.id"), default=None)
+    evaluation_status_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("EvaluationStatus.id"), default=None)
     user_id: Mapped[str] = mapped_column(String(255), ForeignKey("Users.user_id"), nullable=False)
     lecture_id: Mapped[int] = mapped_column(Integer, ForeignKey("Problem.lecture_id"), nullable=False)
     assignment_id: Mapped[int] = mapped_column(Integer, ForeignKey("Problem.assignment_id"), nullable=False)
@@ -208,12 +208,12 @@ class Submission(Base):
     progress: Mapped[str] = mapped_column(Enum("pending", "queued", "running", "done"), default="pending")
     total_task: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completed_task: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    result: Mapped[str] = mapped_column(Enum("AC", "WA", "TLE", "MLE", "RE", "CE", "OLE", "IE", "FN"), nullable=True, default=None)
-    message: Mapped[str] = mapped_column(String(255), nullable=True, default=None)
-    detail: Mapped[str] = mapped_column(String(255), nullable=True, default=None)
-    score: Mapped[int] = mapped_column(Integer, nullable=True, default=None)
-    timeMS: Mapped[int] = mapped_column(Integer, nullable=True, default=None)
-    memoryKB: Mapped[int] = mapped_column(Integer, nullable=True, default=None)
+    result: Mapped[str | None] = mapped_column(Enum("AC", "WA", "TLE", "MLE", "RE", "CE", "OLE", "IE", "FN"), nullable=True, default=None)
+    message: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+    detail: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    timeMS: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    memoryKB: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     
     # Submissionレコードと1-1関係(他方から見たら1-N関係)にあるProblemレコードへの参照
     problem: Mapped["Problem"] = relationship(

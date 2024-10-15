@@ -151,7 +151,7 @@ async def read_lectures(
         return [response.Lecture.model_validate(lecture) for lecture in lecture_list if lecture_is_public(lecture)]
 
 
-@router.get("/info/{lecture_id}/{assignment_id}/detail", response_model=response.ProblemDetail)
+@router.get("/info/{lecture_id}/{assignment_id}/detail", response_model=response.Problem)
 async def read_problem_detail(
     lecture_id: int,
     assignment_id: int,
@@ -161,7 +161,7 @@ async def read_problem_detail(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["me"]),
     ],
-) -> response.ProblemDetail:
+) -> response.Problem:
     """
     授業エントリに紐づく練習問題のエントリの詳細(評価項目、テストケース)を取得する
     """
@@ -182,11 +182,12 @@ async def read_problem_detail(
                 detail="授業エントリが公開期間内ではありません",
             )
 
-    problem_detail = assignments.get_problem_detail(
+    problem_detail = assignments.get_problem(
         db=db,
         lecture_id=lecture_id,
         assignment_id=assignment_id,
         eval=eval,
+        detail=True,
     )
     
     if problem_detail is None:
@@ -195,52 +196,70 @@ async def read_problem_detail(
             detail="課題エントリが見つかりません",
         )
     
-    res = response.ProblemDetail.model_validate(problem_detail)
+    res = response.Problem.model_validate(problem_detail)
+    
+    res.detail = response.ProblemDetail()
     
     # description_pathのファイルの内容を読み込む
     description_path = Path(constant.RESOURCE_DIR) / problem_detail.description_path
     if description_path.exists():
         with open(description_path, "r") as f:
-            res.description = f.read()
-
-    # 各ArrangedFilesのname, contentを読み込む
-    for dest, origin in zip(res.arranged_files, problem_detail.arranged_files):
-        dest.name = Path(origin.path).name
-        with open(Path(constant.RESOURCE_DIR) / origin.path, "r") as f:
-            dest.content = f.read()
+            res.detail.description = f.read()
+    
+    # RequiredFilesを読み込む
+    for required_file in problem_detail.required_files:
+        res.detail.required_files.append(
+            response.RequiredFiles(
+                name=required_file.name
+            )
+        )
     
     # 各TestCasesのstdin, stdout, stderrを読み込む
-    for dest, origin in zip(res.test_cases, problem_detail.test_cases):
-        if origin.stdin_path is not None:
-            with open(Path(constant.RESOURCE_DIR) / origin.stdin_path, "r") as f:
-                dest.stdin = f.read()
-        if origin.stdout_path is not None:
-            with open(Path(constant.RESOURCE_DIR) / origin.stdout_path, "r") as f:
-                dest.stdout = f.read()
-        if origin.stderr_path is not None:
-            with open(Path(constant.RESOURCE_DIR) / origin.stderr_path, "r") as f:
-                dest.stderr = f.read()
-    
+    for test_case in problem_detail.test_cases:
+        test_case_record = response.TestCases(
+            eval=test_case.eval,
+            type=test_case.type,
+            score=test_case.score,
+            title=test_case.title,
+            description=test_case.description,
+            command=test_case.command,
+            args=test_case.args,
+            # stdin, stdout, stderrは後でファイルから読み込む
+            exit_code=test_case.exit_code,
+        )
+        
+        # stdin, stdout, stderrを読み込む
+        if test_case.stdin_path is not None:
+            with open(Path(constant.RESOURCE_DIR) / test_case.stdin_path, "r") as f:
+                test_case_record.stdin = f.read()
+        if test_case.stdout_path is not None:
+            with open(Path(constant.RESOURCE_DIR) / test_case.stdout_path, "r") as f:
+                test_case_record.stdout = f.read()
+        if test_case.stderr_path is not None:
+            with open(Path(constant.RESOURCE_DIR) / test_case.stderr_path, "r") as f:
+                test_case_record.stderr = f.read()
+        res.detail.test_cases.append(test_case_record)
+
     return res
 
 
-@router.post("/judge/{lecture_id}/{assignment_id}")
+@router.post("/judge/{lecture_id}/{assignment_id}", response_model=response.Submission)
 async def single_judge(
     file_list: list[UploadFile],
     lecture_id: int,
     assignment_id: int,
-    evaluation: bool,  # 評価問題かどうか
+    eval: Annotated[bool, Query(description="採点リソースにアクセスするかどうか")],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["me"]),
     ],
-) -> schemas.SubmissionRecord:
+) -> response.Submission:
     """
     単体の採点リクエストを受け付ける
     """
     ############################### Vital #####################################
-    access_sanitize(eval=evaluation, role=current_user.role)
+    access_sanitize(eval=eval, role=current_user.role)
     ############################### Vital #####################################
 
     lecture_entry = assignments.get_lecture(db, lecture_id)
@@ -257,12 +276,13 @@ async def single_judge(
                 detail="授業エントリが公開期間内ではありません",
             )
 
-    # 課題エントリ(lecture_id, assignment_id, for_evaluation=False)を取得する
-    problem_entry = assignments.get_problem_recursive(
+    # 課題エントリ(lecture_id, assignment_id)を取得する
+    problem_entry = assignments.get_problem(
         db=db,
         lecture_id=lecture_id,
         assignment_id=assignment_id,
-        for_evaluation=evaluation,
+        eval=eval,
+        detail=False,
     )
     if problem_entry is None:
         raise HTTPException(
@@ -273,15 +293,15 @@ async def single_judge(
     # ジャッジリクエストをSubmissionテーブルに登録する
     submission_record = assignments.register_submission(
         db=db,
-        batch_id=None,
+        evaluation_status_id=None,
         user_id=current_user.user_id,
         lecture_id=lecture_id,
         assignment_id=assignment_id,
-        for_evaluation=evaluation,
+        eval=eval,
     )
 
-    # アップロードされたファイルを/upload/{submission_record.ts}-{current_user.user_id}-{submission_id}に配置する
-    upload_dir = Path(constant.UPLOAD_DIR) / f"{submission_record.ts.strftime('%Y-%m-%d-%H-%M-%S')}-{current_user.user_id}-{submission_record.id}"
+    # アップロードされたファイルを/upload/{current_user.user_id}/{submission_record.ts}-{submission_id}に配置する
+    upload_dir = Path(constant.UPLOAD_DIR) / f"{current_user.user_id}" / f"{submission_record.ts.strftime('%Y-%m-%d-%H-%M-%S')}-{submission_record.id}"
     if upload_dir.exists():
         shutil.rmtree(upload_dir)
 
@@ -301,34 +321,28 @@ async def single_judge(
     submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
     assignments.modify_submission(db=db, submission_record=submission_record)
 
-    return submission_record
+    return response.Submission.model_validate(submission_record)
 
 
-@router.post("/judge/{lecture_id}")
+@router.post("/judge/{lecture_id}", response_model=List[response.Submission])
 async def judge_all_by_lecture(
-    uploaded_zip_file: UploadFile,
+    uploaded_zip_file: Annotated[UploadFile, File(description="学生が最終提出するzipファイル e.t.c. class1.zip")],
     lecture_id: int,
-    evaluation: bool,  # 評価問題かどうか
+    eval: Annotated[bool, Query(description="採点リソースにアクセスするかどうか")],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["me"]),
     ],
-) -> List[schemas.SubmissionRecord]:
+) -> List[response.Submission]:
     """
     授業エントリに紐づく全ての練習問題を採点する
     
     学生がmanabaに提出する最終成果物が、ちゃんと自動採点されることを確認するために用意している。
     """
     ############################### Vital #####################################
-    access_sanitize(eval=evaluation, role=current_user.role)
+    access_sanitize(eval=eval, role=current_user.role)
     ############################### Vital #####################################
-    
-    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="管理者のみがこのエンドポイントを利用できます",
-        )
     
     # 授業エントリを取得する
     lecture_entry = assignments.get_lecture(db, lecture_id)
@@ -339,34 +353,25 @@ async def judge_all_by_lecture(
         )
 
     # 授業エントリに紐づく全ての練習問題を採点する
-    problem_list = assignments.get_problem_list(
-        db, lecture_id, for_evaluation=evaluation
+    problem_detail_list = assignments.get_problem_detail_list(
+        db=db,
+        lecture_id=lecture_id,
+        eval=eval,
     )
-    
-    # 各Problemエントリに対応する、要求されているファイルのリストを取得する
-    required_files_for_problem: list[list[str]] = []
-    for problem in problem_list:
-        required_files_for_problem.append(
-            assignments.get_required_files(
-                db=db,
-                lecture_id=problem.lecture_id,
-                assignment_id=problem.assignment_id,
-                for_evaluation=problem.for_evaluation,
-            )
-        )
     
     if uploaded_zip_file.filename != f"class{lecture_id}.zip":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="zipファイル名が不正です",
+            detail=f"zipファイル名が不正です。class{lecture_id}.zipを提出してください",
         )
         
-    # zipファイルの内容を{UPLOAD_DIR}/format-check/{user_id}/{lecture_id}/{current_timestamp}に配置する
-    upload_dir = Path(constant.UPLOAD_DIR) / "format-check" / current_user.user_id / str(lecture_id) / datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+    # zipファイルの内容を{UPLOAD_DIR}/{user_id}/format-check/{lecture_id}/{current_timestamp}に配置する
+    upload_dir = Path(constant.UPLOAD_DIR) / current_user.user_id / "format-check" / str(lecture_id) / datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
     if upload_dir.exists():
         shutil.rmtree(upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
     
+    # アップロードされたzipファイルをtempフォルダにおき、それを展開しupload_dirに配置する
     with tempfile.TemporaryDirectory() as temp_dir:
         # アップロードされたzipファイルをtemp_dir下にコピーする
         temp_uploaded_zip_file_path = Path(temp_dir) / uploaded_zip_file.filename
@@ -378,8 +383,8 @@ async def judge_all_by_lecture(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=unzip_result,
-        )
-    
+            )
+
     workspace_dir = upload_dir
     
     '''
@@ -392,56 +397,47 @@ async def judge_all_by_lecture(
     '''
     
     # report{lecture_id}.pdfが存在するかチェックする
-    if not (workspace_dir / f"report{lecture_id}.pdf").exists():
+    report_path = workspace_dir / f"report{lecture_id}.pdf"
+    if not report_path.exists():
         # 一番最初の問題について、Submissionエントリ/SubmissionSummaryエントリを作成し、
         # 何もジャッジされていないことを表す
-        problem = problem_list[0]
+        problem = problem_detail_list[0]
         submission_record = assignments.register_submission(
             db=db,
-            batch_id=None,
+            evaluation_status_id=None,
             user_id=current_user.user_id,
             lecture_id=problem.lecture_id,
             assignment_id=problem.assignment_id,
-            for_evaluation=problem.for_evaluation,
+            eval=eval,
         )
         
         submission_record.progress = schemas.SubmissionProgressStatus.DONE
+        submission_record.result = schemas.SubmissionSummaryStatus.FN
+        submission_record.message = "フォーマットチェック: ZIPファイルにレポートが含まれていません"
+        submission_record.detail = f"report{lecture_id}.pdf"
+        submission_record.score = 0
+        submission_record.timeMS = 0
+        submission_record.memoryKB = 0
         assignments.modify_submission(db=db, submission_record=submission_record)
-        # SubmissionSummaryエントリを作成する
-        submission_summary_record = schemas.SubmissionSummaryRecord(
-            submission_id=submission_record.id,
-            batch_id=None,
-            user_id=current_user.user_id,
-            lecture_id=problem.lecture_id,
-            assignment_id=problem.assignment_id,
-            for_evaluation=problem.for_evaluation,
-            result=schemas.SubmissionSummaryStatus.FN,
-            message="フォーマットチェック: ZIPファイルにレポートが含まれていません",
-            detail=f"report{lecture_id}.pdf",
-            score=0,
-            timeMS=0,
-            memoryKB=0,
-        )
-        assignments.register_submission_summary(db=db, submission_summary_record=submission_summary_record)
-        return [submission_record]
+        return [response.Submission.model_validate(submission_record)]
 
     submission_record_list = []
     
     # 各Problemエントリごとに、Submissionエントリを作成する
-    for problem, required_file_list in zip(problem_list, required_files_for_problem):
+    for problem_detail in problem_detail_list:
         # ジャッジリクエストをSubmissionテーブルに登録する
         submission_record = assignments.register_submission(
             db=db,
-            batch_id=None,
+            evaluation_status_id=None,
             user_id=current_user.user_id,
-            lecture_id=problem.lecture_id,
-            assignment_id=problem.assignment_id,
-            for_evaluation=problem.for_evaluation,
+            lecture_id=problem_detail.lecture_id,
+            assignment_id=problem_detail.assignment_id,
+            eval=eval,
         )
 
         # workspace_dirの中に、required_file_listに含まれるファイルがあるかチェックする
-        for required_file in required_file_list:
-            required_file_path = workspace_dir / required_file
+        for required_file in problem_detail.required_files:
+            required_file_path = workspace_dir / required_file.name
             if not required_file_path.exists():
                 continue
             
@@ -450,8 +446,7 @@ async def judge_all_by_lecture(
                 db=db, submission_id=submission_record.id, path=required_file_path.relative_to(Path(constant.UPLOAD_DIR))
             )
             
-        # report{lecture_id}.pdfもUploadedFilesテーブルに登録する
-        report_path = workspace_dir / f"report{lecture_id}.pdf"
+        # report{lecture_id}.pdfもUploadedFilesテーブルに登録す
         if report_path.exists():
             assignments.register_uploaded_file(
                 db=db, submission_id=submission_record.id, path=report_path.relative_to(Path(constant.UPLOAD_DIR))
@@ -460,29 +455,29 @@ async def judge_all_by_lecture(
         # 提出エントリをキューに登録する
         submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
         assignments.modify_submission(db=db, submission_record=submission_record)
-        submission_record_list.append(submission_record)
+        submission_record_list.append(response.Submission.model_validate(submission_record))
 
     return submission_record_list
 
 
-@router.post("/batch/{lecture_id}")
+@router.post("/batch/{lecture_id}", response_model=response.BatchSubmission)
 async def batch_judge(
-    uploaded_zip_file: UploadFile,
+    uploaded_zip_file: Annotated[UploadFile, File(description="学生が提出するファイル")],
     lecture_id: int,
-    evaluation: bool,  # 評価問題かどうか
+    eval: Annotated[bool, Query(description="採点リソースにアクセスするかどうか")],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> schemas.BatchSubmissionRecord:
+) -> response.BatchSubmission:
     """
     バッチ採点リクエストを受け付ける
 
     注) 採点用のエンドポイントで、学生が使うことを想定していない。
     """
     ############################### Vital #####################################
-    access_sanitize(eval=evaluation, role=current_user.role)
+    access_sanitize(eval=eval, role=current_user.role)
     ############################### Vital #####################################
 
     lecture_entry = assignments.get_lecture(db, lecture_id)
@@ -499,22 +494,11 @@ async def batch_judge(
                 detail="授業エントリが公開期間内ではありません",
             )
 
-    # lecture_idに紐づいたProblemRecordのリストを取得する
-    problem_list = assignments.get_problem_list(
-        db, lecture_id, for_evaluation=evaluation
+    problem_detail_list = assignments.get_problem_detail_list(
+        db=db,
+        lecture_id=lecture_id,
+        eval=eval,
     )
-
-    # 各Problemエントリに対応する、要求されているファイルのリストを取得する
-    required_files_for_problem: list[list[str]] = []
-    for problem in problem_list:
-        required_files_for_problem.append(
-            assignments.get_required_files(
-                db=db,
-                lecture_id=problem.lecture_id,
-                assignment_id=problem.assignment_id,
-                for_evaluation=problem.for_evaluation,
-            )
-        )
 
     # バッチ採点のリクエストをBatchSubmissionテーブルに登録する
     batch_submission_record = assignments.register_batch_submission(
@@ -524,46 +508,118 @@ async def batch_judge(
     )
 
     batch_id = batch_submission_record.id
-    total_judge = 0 # 採点対象の学生の数 (未提出でない学生の数)
+    total_judge = 0 # 採点対象のジャッジリクエストの数
     
-    workspace_dir = tempfile.TemporaryDirectory()
-    workspace_dir_path = Path(workspace_dir.name)
+    error_message = ""
+    
+    batch_dir = Path(constant.UPLOAD_DIR) / "batch" / f"{batch_submission_record.ts.strftime('%Y-%m-%d-%H-%M-%S')}-{batch_submission_record.id}"
+    batch_dir.mkdir(parents=True, exist_ok=True)
+    
+    with tempfile.TemporaryDirectory() as workspace_dir:
+        workspace_dir_path = Path(workspace_dir)
 
-    # アップロードされたzipファイルをworkspace_dirに展開する
-    with zipfile.ZipFile(uploaded_zip_file.file, "r") as zip_ref:
-        zip_ref.extractall(workspace_dir_path)
+        # アップロードされたzipファイルをworkspace_dirに展開する
+        with zipfile.ZipFile(uploaded_zip_file.file, "r") as zip_ref:
+            zip_ref.extractall(workspace_dir_path)
 
-    # 展開先のディレクトリで、フォルダが一個しかない
-    current_dir = workspace_dir_path
-    if len(list(current_dir.iterdir())) == 1 and list(current_dir.iterdir())[0].is_dir():
-        current_dir = list(current_dir.iterdir())[0]
+        # 展開先のディレクトリで、フォルダが一個しかない
+        current_dir = workspace_dir_path
+        if len(list(current_dir.iterdir())) == 1 and list(current_dir.iterdir())[0].is_dir():
+            current_dir = list(current_dir.iterdir())[0]
 
-    '''
-    この時点でのcurrent_dirの構成
-    .
-    ├── 202211479@001202214795
-    │   └── class{lecture_id}.zip 
-    ├── 202211479@001202214795
-    │   └── class{lecture_id}.zip 
-    ├── 202211479@001202214795
-    │   └── class{lecture_id}.zip 
-    ├── 202211479@001202214795
-    │   └── class{lecture_id}.zip
-    ...
-    └── reportlist.xlsx
-    ''' 
+        '''
+        この時点でのcurrent_dirの構成
+        .
+        ├── 202211479@001202214795
+        │   └── class{lecture_id}.zip 
+        ├── 202211479@001202214795
+        │   └── class{lecture_id}.zip 
+        ├── 202211479@001202214795
+        │   └── class{lecture_id}.zip 
+        ├── 202211479@001202214795
+        │   └── class{lecture_id}.zip
+        ...
+        └── reportlist.xlsx
+        ''' 
+    
+        '''
+        current_dirにあるフォルダを読み込み、
+        {UPLOAD_DIR}/batch/{batch_submission_record.ts}-{batch_submission_record.id}/
+        に以下のような構成で配置する
+        .
+        ├── 202211479
+        │   ├── report1.pdf
+        |   ├── Makefile
+        |   ├── main.c
+        |   └── func.c
+        ├── 202211479
+        │   ├── report1.pdf
+        |   ├── Makefile
+        |   ├── main.c
+        |   └── func.c
+        ├── 202211479
+        │   ├── report1.pdf
+        |   ├── Makefile
+        |   ├── main.c
+        |   └── func.c
+        ...
+        └── reportlist.xlsx
+        '''
+        
+        # reportlist.xlsxもしくはreportlist.xlsをbatch_dirにコピーする
+        reportlist_file_on_workspace = current_dir / "reportlist.xlsx"
+        if not reportlist_file_on_workspace.exists():
+            reportlist_file_on_workspace = current_dir / "reportlist.xls"
+            if not reportlist_file_on_workspace.exists():
+                # batch_dirを削除して、エラーメッセージを返す
+                shutil.rmtree(batch_dir)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="reportlist.xlsxまたはreportlist.xlsが存在しません",
+                )
+        
+        # reportlist.xlsxもしくはreportlist.xlsをbatch_dirにコピーする
+        reportlist_file_on_batch = batch_dir / reportlist_file_on_workspace.name
+        reportlist_file_on_batch.write_bytes(reportlist_file_on_workspace.read_bytes())
+    
+        # 各ユーザのフォルダをbatch_dirにコピーする
+        for user_dir in current_dir.iterdir():
+            if not user_dir.is_dir() or '@' not in user_dir.name:
+                continue
+            
+            # {9桁の学籍番号}@{13桁のID}の{9桁の学籍番号}の部分を取得する
+            user_id = user_dir.name.split('@')[0]
+                
+            # ユーザがDBに登録されているかチェックする
+            if users.get_user(db, user_id) is None:
+                error_message += f"{user_id}はユーザDBに登録されていません\n"
+                continue
+            
+            # ユーザのclass{lecture_id}.zipの内容を展開し、
+            # {batch_dir}/{user_id}/に配置する
+            user_zip_file_on_workspace = user_dir / f"class{lecture_id}.zip"
+            if not user_zip_file_on_workspace.exists():
+                error_message += f"{user_id}は提出済みであるにも関わらず、class{lecture_id}.zipを提出していません\n"
+                continue
+            
+            user_zip_file_extract_dest = batch_dir / user_id
+            user_zip_file_extract_dest.mkdir(parents=True, exist_ok=True)
+            message = unfold_zip(user_zip_file_on_workspace, user_zip_file_extract_dest)
+            if message is not None:
+                error_message += f"{user_id}のZipファイルの解凍中にエラーが発生しました: {message}\n"
+                continue
 
     # reportlist.xlsxを読み込み、未提出も含めて、採点対象の学生のリストを取得する
     # 取得する情報、学籍番号、提出状況(提出済/受付終了後提出/未提出)、提出日時(None | datetime)
-    report_list_df = assignments_util.get_report_list(current_dir / "reportlist.xlsx")
+    report_list_df = assignments_util.get_report_list(batch_dir / "reportlist.xlsx")
 
     if report_list_df is None:
         # reportlist.xlsxが存在しない場合は、reportlist.xlsを試す
-        report_list_df = assignments_util.get_report_list(current_dir / "reportlist.xls")
+        report_list_df = assignments_util.get_report_list(batch_dir / "reportlist.xls")
 
     if report_list_df is None:
         # reportlist.xlsxもreportlist.xlsも存在しない場合は、エラーを返す
-        workspace_dir.cleanup()
+        shutil.rmtree(batch_dir)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="reportlist.xlsxまたはreportlist.xlsが存在しません",
@@ -574,9 +630,7 @@ async def batch_judge(
 
     # ユーザの学籍番号をキーとして、そのユーザの提出状況を格納する
     # 未提出のユーザはNoneとする。
-    batch_submission_summary_list: list[schemas.BatchSubmissionSummaryRecord] = []
-
-    error_message = ""
+    evaluation_status_list: list[schemas.EvaluationStatus] = []
 
     # report_list_dfの"# 学籍番号"の値(9桁の学籍番号)と"# 提出"の値(提出済/受付終了後提出/未提出)を参照し、
     # "未提出"でないなら、{9桁の学籍番号}@{13桁のID}のフォルダを探す。
@@ -600,7 +654,7 @@ async def batch_judge(
             error_message += f"{index}行目の提出日時が提出済みであるにも関わらず空です。遅延判定ができません\n"
             continue
 
-        batch_submission_summary_record = schemas.BatchSubmissionSummaryRecord(
+        evaluation_status_record = schemas.EvaluationStatus(
             batch_id=batch_id,
             user_id=user_id,
             status=(
@@ -614,95 +668,70 @@ async def batch_judge(
             ),
         )
         
-        if batch_submission_summary_record.status == schemas.StudentSubmissionStatus.NON_SUBMITTED:
-            batch_submission_summary_list.append(batch_submission_summary_record)
+        if evaluation_status_record.status == schemas.StudentSubmissionStatus.NON_SUBMITTED:
+            evaluation_status_list.append(evaluation_status_record)
             continue
-
-        user_dir_pattern = re.compile(f"{user_id}@\\d{{3}}{user_id}\\d{{1}}")
-        matching_dirs = [d for d in current_dir.iterdir() if d.is_dir() and user_dir_pattern.match(d.name)]
-        user_dir_path = matching_dirs[0] if len(matching_dirs) > 0 else None
-
-        if user_dir_path is None:
+        
+        user_upload_dir = batch_dir / user_id
+        
+        if not user_upload_dir.exists():
             error_message += f"{index}行目のユーザは提出済みであるにも関わらず、フォルダが存在しません\n"
             continue
         
-        # user_dir_pathの内部にclass{lecture_id}.zipが存在するかチェックする
-        user_zip_file_on_workspace = user_dir_path / f"class{lecture_id}.zip"
-        if not user_zip_file_on_workspace.exists():
-            error_message += f"{index}行目のユーザは提出済みであるにも関わらず、class{lecture_id}.zipを提出していません\n"
-            continue
-        
-        # user_dir_path/"class{lecture_id}.zip"を、{UPLOAD_DIR}/{batch_submission_record.ts}-{batch_submission_record.id}/{user_id}/に解凍する。
-        user_zip_file_extract_dest = Path(constant.UPLOAD_DIR) / f"{batch_submission_record.ts.strftime('%Y-%m-%d-%H-%M-%S')}-{batch_submission_record.id}" / user_id
-        user_zip_file_extract_dest.mkdir(parents=True, exist_ok=True)
-        message = unfold_zip(user_zip_file_on_workspace, user_zip_file_extract_dest)
-        if message is not None:
-            error_message += f"{index}行目のユーザのZipファイルの解凍中にエラーが発生しました: {message}\n"
-            # エラーがあっても一応、ジャッジを行う
-        
-        # 提出日時を設定する
-        # アップロード先のディレクトリパス
-        batch_submission_summary_record.upload_dir = str(user_zip_file_extract_dest.relative_to(Path(constant.UPLOAD_DIR)))
+        # アップロード先ディレクトリを設定する
+        evaluation_status_record.upload_dir = str(user_upload_dir.relative_to(Path(constant.UPLOAD_DIR)))
         
         # レポートのパス(アップロード先にreport1.pdfがあるはず、なかったらNone)
-        report_path = user_zip_file_extract_dest / "report1.pdf"
+        report_path = user_upload_dir / "report1.pdf"
         if report_path.exists():
-            batch_submission_summary_record.report_path = str(report_path.relative_to(Path(constant.UPLOAD_DIR)))
+            evaluation_status_record.report_path = str(report_path.relative_to(Path(constant.UPLOAD_DIR)))
         
         # 提出日時を設定する
-        batch_submission_summary_record.submit_date = submit_date
+        evaluation_status_record.submit_date = submit_date
         
-        batch_submission_summary_list.append(batch_submission_summary_record)
+        evaluation_status_list.append(evaluation_status_record)
         
-    for batch_submission_summary_record in batch_submission_summary_list:
-        assignments.register_batch_submission_summary(db=db, batch_submission_summary_record=batch_submission_summary_record)
+    for evaluation_status_record in evaluation_status_list:
+        evaluation_status_record = assignments.register_evaluation_status(db=db, evaluation_status_record=evaluation_status_record)
         
         # 未提出の場合は、ジャッジを行わない
-        if batch_submission_summary_record.status == schemas.StudentSubmissionStatus.NON_SUBMITTED:
+        if evaluation_status_record.status == schemas.StudentSubmissionStatus.NON_SUBMITTED:
             # batch_submission_summary_record.result = None
             continue
         
-        if batch_submission_summary_record.upload_dir is None:
-            error_message += f"{batch_submission_summary_record.user_id}の提出フォルダが存在しません\n"
+        if evaluation_status_record.upload_dir is None:
+            error_message += f"{evaluation_status_record.user_id}の提出フォルダが存在しません\n"
             # 提出フォルダが存在しない場合は、非提出とする
-            batch_submission_summary_record.status = schemas.StudentSubmissionStatus.NON_SUBMITTED
-            assignments.update_batch_submission_summary(db=db, batch_submission_summary_record=batch_submission_summary_record)
+            evaluation_status_record.status = schemas.StudentSubmissionStatus.NON_SUBMITTED
+            assignments.update_evaluation_status(db=db, evaluation_status_record=evaluation_status_record)
             continue
         
         # 提出済みの場合は、ジャッジを行う
         
-        uploaded_filepath_list = [
-            p for p in (Path(constant.UPLOAD_DIR) / batch_submission_summary_record.upload_dir).iterdir()
-            if p.is_file()
-        ]
-        
         # 各課題ごとにジャッジリクエストを発行する
-        for problem, required_file_list in zip(problem_list, required_files_for_problem):
+        for problem_detail in problem_detail_list:
             # ジャッジリクエストをSubmissionテーブルに登録する
             submission_record = assignments.register_submission(
                 db=db,
-                batch_id=batch_id,
-                user_id=batch_submission_summary_record.user_id,
-                lecture_id=problem.lecture_id,
-                assignment_id=problem.assignment_id,
-                for_evaluation=problem.for_evaluation,
+                evaluation_status_id=evaluation_status_record.id,
+                user_id=evaluation_status_record.user_id,
+                lecture_id=problem_detail.lecture_id,
+                assignment_id=problem_detail.assignment_id,
+                eval=eval,
             )
             
             total_judge += 1
 
-            # uploaded_filepath_listの中から、required_file_listに含まれているファイルのみ、
+            # uploaded_filepath_listの中から、required_filesに含まれているファイルのみ、
             # UploadedFilesテーブルに登録する
-            filtered_uploaded_filepath_list = [
-                p for p in uploaded_filepath_list
-                if p.name in required_file_list
-            ]
-            
-            for p in filtered_uploaded_filepath_list:
-                assignments.register_uploaded_file(
-                    db=db,
-                    submission_id=submission_record.id,
-                    path=p.relative_to(Path(constant.UPLOAD_DIR))
-                )
+            for required_file in problem_detail.required_files:
+                fp = Path(constant.UPLOAD_DIR) / evaluation_status_record.upload_dir / required_file.name
+                if fp.exists():
+                    assignments.register_uploaded_file(
+                        db=db,
+                        submission_id=submission_record.id,
+                        path=fp.relative_to(Path(constant.UPLOAD_DIR))
+                    )
             
             # 提出エントリをキューに登録する
             submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
@@ -716,24 +745,23 @@ async def batch_judge(
     batch_submission_record.complete_judge = 0
     batch_submission_record.total_judge = total_judge
     assignments.modify_batch_submission(db=db, batch_submission_record=batch_submission_record)
-    
-    workspace_dir.cleanup()
-    return batch_submission_record
+
+    return response.BatchSubmission.model_validate(batch_submission_record)
 
 
-@router.get("/status/submissions/me")
+@router.get("/status/submissions/view", response_model=List[response.Submission])
 async def read_all_submission_status_of_me(
     page: int,
+    include_eval: Annotated[bool, Query(description="評価用の提出も含めるかどうか")],
+    all: Annotated[bool, Query(description="全てのユーザの提出を含めるかどうか")],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["me"]),
     ],
-) -> List[schemas.JudgeProgressAndStatus]:
+) -> List[response.Submission]:
     """
     自身に紐づいた提出の進捗状況を取得する
-    
-    学生が自身の提出の進捗状況を確認するために使うことを想定している
     """
     if page < 1:
         raise HTTPException(
@@ -741,90 +769,38 @@ async def read_all_submission_status_of_me(
             detail="ページは1以上である必要があります",
         )
 
-    submission_record_list = assignments.get_submission_list_for_student(
-        db, current_user.user_id, limit=20, offset=(page - 1) * 20
-    )
-
-    judge_progress_and_status_list = []
-    for submission_record in submission_record_list:
-        judge_progress_and_status = schemas.JudgeProgressAndStatus(
-            **submission_record.model_dump(),
-            result=None,
-            message=None,
-            score=None,
-            timeMS=None,
-            memoryKB=None,
-        )
-        if submission_record.progress == schemas.SubmissionProgressStatus.DONE:
-            submission_summary = assignments.get_submission_summary(
-                db, submission_record.id
+    if current_user.role not in [
+        schemas.Role.student,
+        schemas.Role.admin,
+        schemas.Role.manager,
+    ]:
+        if include_eval:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="管理者のみが評価用の提出の進捗状況を取得できます",
             )
-            if submission_summary is not None:
-                judge_progress_and_status.result = submission_summary.result
-                judge_progress_and_status.message = submission_summary.message
-                judge_progress_and_status.score = submission_summary.score
-                judge_progress_and_status.timeMS = submission_summary.timeMS
-                judge_progress_and_status.memoryKB = submission_summary.memoryKB
-        judge_progress_and_status_list.append(judge_progress_and_status)
 
-    return judge_progress_and_status_list
-
-
-@router.get("/status/submissions/all")
-async def read_all_submission_status(
-    page: int,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[
-        schemas.UserRecord,
-        Security(authenticate_util.get_current_active_user, scopes=["view_users"]),
-    ],
-) -> List[schemas.JudgeProgressAndStatus]:
-    """
-    全ての提出の進捗状況を取得する
-
-    管理者が全ての提出の進捗状況を確認するために使うことを想定している
-    """
-    if page < 1:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="ページは1以上である必要があります",
-        )
-
-    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="管理者のみが全ての提出の進捗状況を取得できます",
-        )
+        if all:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="管理者のみが全てのユーザの提出の進捗状況を取得できます",
+            )
 
     submission_record_list = assignments.get_submission_list(
-        db, limit=20, offset=(page - 1) * 20
+        db=db,
+        limit=10,
+        offset=(page - 1) * 10,
+        user_id=None if all else current_user.user_id,
+        include_eval=include_eval,
     )
-    judge_progress_and_status_list = []
-    for submission_record in submission_record_list:
-        judge_progress_and_status = schemas.JudgeProgressAndStatus(
-            **submission_record.model_dump(),
-            result=None,
-            message=None,
-            score=None,
-            timeMS=None,
-            memoryKB=None,
-        )
-        if submission_record.progress == schemas.SubmissionProgressStatus.DONE:
-            submission_summary = assignments.get_submission_summary(
-                db, submission_record.id
-            )
-            if submission_summary is not None:
-                judge_progress_and_status.result = submission_summary.result
-                judge_progress_and_status.message = submission_summary.message
-                judge_progress_and_status.score = submission_summary.score
-                judge_progress_and_status.timeMS = submission_summary.timeMS
-                judge_progress_and_status.memoryKB = submission_summary.memoryKB
-        judge_progress_and_status_list.append(judge_progress_and_status)
 
-    return judge_progress_and_status_list
+    return [
+        response.Submission.model_validate(submission_record)
+        for submission_record in submission_record_list
+    ]
 
 
-@router.get("/status/submissions/{submission_id}")
+@router.get("/status/submissions/id/{submission_id}", response_model=response.Submission)
 async def read_submission_status(
     submission_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -832,7 +808,7 @@ async def read_submission_status(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["me"]),
     ],
-) -> schemas.JudgeProgressAndStatus:
+) -> response.Submission:
     """
     特定の提出の進捗状況を取得する
     """
@@ -852,43 +828,23 @@ async def read_submission_status(
             )
 
         # バッチ採点に紐づいた提出は取得できない
-        if submission_record.batch_id is not None:
+        if submission_record.evaluation_status_id is not None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="バッチ採点に紐づいた提出は取得できません",
             )
 
         # 評価問題の提出は取得できない
-        if submission_record.for_evaluation:
+        if submission_record.eval:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="評価問題の提出は取得できません",
             )
 
-    judge_progress_and_status = schemas.JudgeProgressAndStatus(
-        **submission_record.model_dump(),
-        result=None,
-        message=None,
-        score=None,
-        timeMS=None,
-        memoryKB=None,
-    )
-
-    if submission_record.progress == schemas.SubmissionProgressStatus.DONE:
-        submission_summary = assignments.get_submission_summary(
-            db, submission_record.id
-        )
-        if submission_summary is not None:
-            judge_progress_and_status.result = submission_summary.result
-            judge_progress_and_status.message = submission_summary.message
-            judge_progress_and_status.score = submission_summary.score
-            judge_progress_and_status.timeMS = submission_summary.timeMS
-            judge_progress_and_status.memoryKB = submission_summary.memoryKB
-
-    return judge_progress_and_status
+    return response.Submission.model_validate(submission_record)
 
 
-@router.get("/status/submissions/{submission_id}/files/zip", response_class=FileResponse)
+@router.get("/status/submissions/id/{submission_id}/files/zip", response_class=FileResponse)
 async def read_uploaded_file_list(
     submission_id: int,
     type: Literal["uploaded", "arranged"],
@@ -917,7 +873,7 @@ async def read_uploaded_file_list(
             )
         
         # バッチ採点に紐づいた提出は取得できない
-        if submission_record.batch_id is not None:
+        if submission_record.evaluation_status_id is not None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="バッチ採点に紐づいた提出は取得できません",
@@ -934,13 +890,13 @@ async def read_uploaded_file_list(
     if type == "uploaded":
         file_list = assignments.get_uploaded_files(db, submission_id)
     elif type == "arranged":
-        file_list = assignments.get_arranged_files(db=db, lecture_id=submission_record.lecture_id, assignment_id=submission_record.assignment_id, for_evaluation=submission_record.for_evaluation)
+        file_list = assignments.get_arranged_files(db=db, lecture_id=submission_record.lecture_id, assignment_id=submission_record.assignment_id, eval=submission_record.eval)
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="typeは'uploaded'か'arranged'のみ指定できます",
         )
-        
+
     temp_dir = tempfile.TemporaryDirectory()
         
     temp_dir_path = Path(temp_dir.name)
@@ -958,7 +914,7 @@ async def read_uploaded_file_list(
 # バッチ採点に関しては、ManagerとAdminが全てのバッチ採点の進捗状況を見れるようにしている。
 
 
-@router.get("/status/batch/all")
+@router.get("/status/batch/all", response_model=List[response.BatchSubmission])
 async def read_all_batch_status(
     page: int,
     db: Annotated[Session, Depends(get_db)],
@@ -966,7 +922,7 @@ async def read_all_batch_status(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> List[schemas.BatchSubmissionRecord]:
+) -> List[response.BatchSubmission]:
     """
     全てのバッチ採点の進捗状況を取得する
     """
@@ -978,10 +934,10 @@ async def read_all_batch_status(
 
     batch_submission_record_list = assignments.get_batch_submission_list(db, limit=20, offset=(page - 1) * 20)
 
-    return batch_submission_record_list
+    return [response.BatchSubmission.model_validate(batch_submission_record) for batch_submission_record in batch_submission_record_list]
 
 
-@router.get("/status/batch/{batch_id}")
+@router.get("/status/batch/id/{batch_id}", response_model=response.BatchSubmission)
 async def read_batch_status(
     batch_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -989,24 +945,24 @@ async def read_batch_status(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> schemas.BatchSubmissionRecord:
+) -> response.BatchSubmission:
     """
     バッチ採点の進捗状況を取得する
     """
-    batch_submission_progress = assignments.get_batch_submission_progress(db, batch_id)
-    if batch_submission_progress is None:
+    batch_submission_status = assignments.get_batch_submission_status(db, batch_id)
+    if batch_submission_status is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="バッチ採点エントリが見つかりません",
         )
 
-    return batch_submission_progress
+    return response.BatchSubmission.model_validate(batch_submission_status)
 
 
 # ジャッジ結果を取得するエンドポイント
-# schemas.SubmissionSummaryRecordを返す
+# response.SubmissionSummaryを返す
 
-@router.get("/result/submissions/{submission_id}")
+@router.get("/result/submissions/id/{submission_id}", response_model=response.Submission)
 async def read_submission_summary(
     submission_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -1014,11 +970,13 @@ async def read_submission_summary(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["me"]),
     ],
-) -> schemas.SubmissionSummaryRecord:
+) -> response.Submission:
     """
     特定の提出のジャッジ結果を取得する
+    
+    全体の結果だけでなく、個々のテストケースの結果も取得する。
     """
-    submission_record = assignments.get_submission(db, submission_id)
+    submission_record = assignments.get_submission(db, submission_id, detail=True)
     if submission_record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1034,81 +992,31 @@ async def read_submission_summary(
             )
         
         # バッチ採点に紐づいた提出は取得できない
-        if submission_record.batch_id is not None:
+        if submission_record.evaluation_status_id is not None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="バッチ採点に紐づいた提出は取得できません",
             )
         
         # 評価問題の提出は取得できない
-        if submission_record.for_evaluation:
+        if submission_record.eval:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="評価問題の提出は取得できません",
             )
-
-    submission_summary = assignments.get_submission_summary(db, submission_id)
-    if submission_summary is None:
+    
+    if submission_record.progress != schemas.SubmissionProgressStatus.DONE:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="提出エントリのジャッジ結果が見つかりません",
-        )
-
-    return submission_summary
-
-
-@router.get("/result/submissions/{submission_id}/detail")
-async def read_submission_summary_detail(
-    submission_id: int,
-    db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[
-        schemas.UserRecord,
-        Security(authenticate_util.get_current_active_user, scopes=["me"]),
-    ],
-) -> schemas.SubmissionSummaryRecord:
-    """
-    特定の提出のジャッジ結果とその詳細を取得する
-    """
-    submission_record = assignments.get_submission(db, submission_id)
-    if submission_record is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="提出エントリが見つかりません",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="ジャッジが完了していません",
         )
     
-    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
-        # ユーザがAdmin, Managerでない場合は、ログインユーザのジャッジ結果のみ取得できる
-        if submission_record.user_id != current_user.user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="ログインユーザのジャッジ結果のみ取得できます",
-            )
-        
-        # バッチ提出に紐づいた提出は取得できない
-        if submission_record.batch_id is not None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="バッチ提出に紐づいた提出は取得できません",
-            )
-        
-        # 評価問題の提出は取得できない
-        if submission_record.for_evaluation:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="評価問題の提出は取得できません",
-            )
+    res = response.Submission.model_validate(submission_record)
 
-    submission_summary = assignments.get_submission_summary_detail(db, submission_id)
-    if submission_summary is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="提出エントリのジャッジ結果が見つかりません",
-        )
-
-    return submission_summary
+    return res
 
 
-@router.get("/result/batch/{batch_id}", response_model=schemas.BatchEvaluationDetail)
+@router.get("/result/batch/id/{batch_id}", response_model=response.BatchSubmission)
 async def read_submission_summary_list_for_batch(
     batch_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -1116,85 +1024,41 @@ async def read_submission_summary_list_for_batch(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> schemas.BatchEvaluationDetail:
+) -> response.BatchSubmission:
     """
     特定のバッチ採点のジャッジ結果を取得する
     
     詳細は(テストケース毎にかかった時間、メモリ使用量など)取得しない、全体の結果のみ取得される
+    BatchSubmission -{ EvaluationStatus -{ Submission の粒度まで取得する
     """
-    batch_submission_record = assignments.get_batch_submission(db, batch_id)
+    batch_submission_record = assignments.get_batch_submission_status(db, batch_id)
     if batch_submission_record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="バッチ採点エントリが見つかりません",
         )
 
-    if batch_submission_record.complete_judge != batch_submission_record.total_judge:
+    if (batch_submission_record.complete_judge is None 
+        or batch_submission_record.total_judge is None) or batch_submission_record.complete_judge != batch_submission_record.total_judge:
         # 完了していない場合は、詳細は取得できない
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="バッチ採点が完了していません",
         )
-
-    # バッチ提出に含まれた提出エントリを取得する
-    submission_entry_list = assignments.get_submission_list_for_batch(db, batch_id)
-
-    # user_id -> list[schemas.SubmissionSummaryRecord]の辞書を作成する
-    submission_summary_dict: dict[str, list[schemas.SubmissionSummaryRecord]] = {}
-    for submission_entry in submission_entry_list:
-        submission_summary = assignments.get_submission_summary(db, submission_entry.id)
-        if submission_summary is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="提出エントリのジャッジ結果が見つかりません",
-            )
-        if submission_entry.user_id not in submission_summary_dict:
-            submission_summary_dict[submission_entry.user_id] = [submission_summary]
-        else:
-            submission_summary_dict[submission_entry.user_id].append(submission_summary)
-
-    # 集計する
-    batch_evaluation_detail = schemas.BatchEvaluationDetail(
-        batch_id=batch_id,
-        ts=batch_submission_record.ts,
-        user_id=batch_submission_record.user_id,
-        lecture_id=batch_submission_record.lecture_id,
-        message=batch_submission_record.message,
-        complete_judge=batch_submission_record.complete_judge,
-        total_judge=batch_submission_record.total_judge
-    )
     
-    batch_submission_summary_list = assignments.get_batch_submission_summary_list(db, batch_id)
-    evaluation_detail_list = []
-    
-    for batch_submission_summary in batch_submission_summary_list:
-        evaluation_detail = schemas.EvaluationDetail(
-            user_id=batch_submission_summary.user_id,
-            status=batch_submission_summary.status,
-            result=batch_submission_summary.result,
-            # TODO: アップロードされたファイルをZIPで取得するAPIを作成する
-            uploaded_file_url=f"/assignments/batch/{batch_id}/files/uploaded/{batch_submission_summary.user_id}",
-            # TODO: レポートを取得するAPIを作成する
-            report_url=f"/assignments/batch/{batch_id}/files/report/{batch_submission_summary.user_id}",
-            submit_date=batch_submission_summary.submit_date,
-            submission_summary_list=submission_summary_dict[batch_submission_summary.user_id] if batch_submission_summary.status != schemas.StudentSubmissionStatus.NON_SUBMITTED else []
+    batch_submission_detail = assignments.get_batch_submission_detail(db, batch_id)
+    if batch_submission_detail is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="バッチ採点エントリが見つかりません",
         )
-        # もし、statusがSUBMITTEDもしくはDELAYで、resultがNoneの場合は、resultを更新する
-        if batch_submission_summary.status in [schemas.StudentSubmissionStatus.SUBMITTED, schemas.StudentSubmissionStatus.DELAY] and batch_submission_summary.result is None:
-            # 全体のジャッジ結果を更新する
-            result = schemas.SubmissionSummaryStatus.AC
-            for submission_summary in submission_summary_dict[batch_submission_summary.user_id]:
-                result = max(result, submission_summary.result)
-            batch_submission_summary.result = result
-            evaluation_detail.result = result
-            assignments.update_batch_submission_summary(db, batch_submission_summary)
-        evaluation_detail_list.append(evaluation_detail)
-
-    batch_evaluation_detail.evaluation_detail_list = evaluation_detail_list
-    return batch_evaluation_detail
+    
+    ret = response.BatchSubmission.model_validate(batch_submission_detail)
+    
+    return ret
 
 
-@router.get("/result/batch/{batch_id}/user/{user_id}", response_model=schemas.EvaluationDetail)
+@router.get("/result/batch/id/{batch_id}/user/{user_id}", response_model=response.EvaluationStatus)
 async def read_submission_summary_list_for_batch_user(
     batch_id: int,
     user_id: str,
@@ -1203,28 +1067,22 @@ async def read_submission_summary_list_for_batch_user(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> schemas.EvaluationDetail:
+) -> response.EvaluationStatus:
     """
-    特定のバッチ採点のジャッジ結果を取得する
+    特定のバッチ採点の特定のユーザの採点結果を取得する
+    
+    EvaluationStatus -{ Submission -{ JudgeResultの粒度まで取得する
     """
-    batch_user_detail = assignments.get_batch_user_detail(db, batch_id, user_id)
+    batch_user_detail = assignments.get_evaluation_status(db, batch_id, user_id)
     if batch_user_detail is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="バッチ採点エントリが見つかりません",
         )
     
-    submission_summary_list = assignments.get_submission_summary_list_for_batch_user(db, batch_id, user_id)
+    submission_summary_list = assignments.get_evaluation_status_detail(db, batch_id, user_id)
     
-    return schemas.EvaluationDetail(
-        user_id=batch_user_detail.user_id,
-        status=batch_user_detail.status,
-        result=batch_user_detail.result,
-        uploaded_file_url=f"/assignments/batch/{batch_id}/files/uploaded/{user_id}",
-        report_url=f"/assignments/batch/{batch_id}/files/report/{user_id}",
-        submit_date=batch_user_detail.submit_date,
-        submission_summary_list=submission_summary_list
-    )
+    return response.EvaluationStatus.model_validate(batch_user_detail)
 
 
 @router.get("/result/batch/{batch_id}/files/uploaded/{user_id}", response_class=FileResponse)
@@ -1247,7 +1105,7 @@ async def fetch_uploaded_files_of_batch(
         )
     
     # BatchSubmissionSummaryのupload_dirを取得する
-    batch_submission_summary = assignments.get_batch_submission_summary(db, batch_id, user_id)
+    batch_submission_summary = assignments.get_evaluation_status(db, batch_id, user_id)
     if batch_submission_summary is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1296,7 +1154,7 @@ async def fetch_report_of_batch(
             detail="バッチ採点のレポートは取得できません",
         )
     
-    batch_submission_summary = assignments.get_batch_submission_summary(db, batch_id, user_id)
+    batch_submission_summary = assignments.get_evaluation_status(db, batch_id, user_id)
     if batch_submission_summary is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

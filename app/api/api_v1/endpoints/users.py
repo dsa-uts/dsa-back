@@ -16,7 +16,7 @@ import logging
 from pydantic import ValidationError
 import pandas as pd
 from app.api.api_v1.endpoints import authenticate_util
-from app.classes import schemas
+from app.classes import schemas, response
 from datetime import timedelta
 from app.crud.db import users as crud_users
 from fastapi.responses import FileResponse
@@ -37,7 +37,7 @@ async def create_user(
         schemas.UserRecord,
         Security(authenticate_util.get_current_user, scopes=["account"]),
     ],
-) -> schemas.Message:
+) -> response.Message:
     if db is None or current_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
@@ -81,7 +81,7 @@ async def create_user(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return schemas.Message(message="ユーザーが正常に作成されました。")
+    return response.Message(message="ユーザーが正常に作成されました。")
 
 
 @router.post("/register/multiple")
@@ -166,7 +166,7 @@ async def register_multiple_users(
     return FileResponse(file_path, filename=file_path.name)
 
 
-@router.get("/all", response_model=List[schemas.UserView])
+@router.get("/all", response_model=List[response.User])
 async def get_users_list(
     db: Annotated[Session, Depends(get_db)],
     # current_userが使われることはないが、view_usersというスコープを持つユーザー(admin, manager)のみがこのAPIを利用できるようにするために必要
@@ -174,10 +174,10 @@ async def get_users_list(
         schemas.UserRecord,
         Security(authenticate_util.get_current_user, scopes=["view_users"]),
     ],
-) -> List[schemas.UserView]:
+) -> List[response.User]:
     # パスワードを除外して返す
     return [
-        schemas.UserView.model_validate(user.model_dump(exclude={"hashed_password"}))
+        response.User.model_validate(user.model_dump(exclude={"hashed_password"}))
         for user in crud_users.get_users(db=db)
     ]
 
@@ -222,8 +222,8 @@ async def get_my_user_info(
         schemas.UserRecord,
         Security(authenticate_util.get_current_user, scopes=["me"]),
     ],
-) -> schemas.UserView:
-    return schemas.UserView.model_validate(current_user.model_dump(exclude={"hashed_password"}))
+) -> response.User:
+    return response.User.model_validate(current_user)
 
 
 @router.get("/info/{user_id}")
@@ -234,8 +234,8 @@ async def get_user_info(
         schemas.UserRecord,
         Security(authenticate_util.get_current_user, scopes=["view_users"]),
     ],
-) -> schemas.UserView:
+) -> response.User:
     user_record = crud_users.get_user(db=db, user_id=user_id)
     if user_record is None:
         raise HTTPException(status_code=404, detail="User not found")
-    return schemas.UserView.model_validate(user_record.model_dump(exclude={"hashed_password"}))
+    return response.User.model_validate(user_record)

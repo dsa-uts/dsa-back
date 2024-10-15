@@ -38,20 +38,21 @@ class Problem(BaseModel):
     assignment_id: int
     title: str
     # description_pathはレスポンスには含めない。
-    # timeMSとmemoryMBはProblemDetailで返す。
-    detail: "ProblemDetail" | None = Field(default=None)
+    timeMS: int
+    memoryMB: int
     
+    detail: Optional["ProblemDetail"] = Field(default=None)
+
     model_config = {"from_attributes": True}
 
 
-class ProblemDetail(Problem):
-    
+class ProblemDetail(BaseModel):
     description: str | None = Field(default=None) # description_pathをファイルから読み込んだ文字列
     
-    executables: list["Executables"]
-    arranged_files: list["ArrangedFiles"]
-    required_files: list["RequiredFiles"]
-    test_cases: list["TestCases"]
+    executables: list["Executables"] = Field(default_factory=list)
+    # arranged_filesは読み込まない、別途ZIPファイルで返す
+    required_files: list["RequiredFiles"] = Field(default_factory=list)
+    test_cases: list["TestCases"] = Field(default_factory=list)
     
     model_config = {"from_attributes": True}
     
@@ -70,14 +71,6 @@ class Executables(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ArrangedFiles(BaseModel):
-    eval: bool
-    name: str | None = Field(default=None)
-    content: str | None = Field(default=None) # ファイルの中身
-
-    model_config = {"from_attributes": True}
-
-
 class RequiredFiles(BaseModel):
     name: str
 
@@ -85,6 +78,7 @@ class RequiredFiles(BaseModel):
 
 
 class TestCases(BaseModel):
+    id: int
     eval: bool
     type: EvaluationType
     score: int
@@ -114,6 +108,8 @@ class BatchSubmission(BaseModel):
     complete_judge: int | None
     total_judge: int | None
     
+    evaluation_statuses: list["EvaluationStatus"] = Field(default_factory=list)
+    
     model_config = {"from_attributes": True}
     
     @field_serializer("ts")
@@ -133,19 +129,22 @@ class BatchSubmission(BaseModel):
             return "running"
 
 
-class BatchSubmissionSummary(BaseModel):
+class EvaluationStatus(BaseModel):
+    id: int = Field(default=0)
     batch_id: int
     user_id: str
     status: StudentSubmissionStatus
-    result: SubmissionSummaryStatus | None
+    result: SubmissionSummaryStatus | None = Field(default=None)
     # BatchSubmissionSummaryテーブルのupload_dirがNULLじゃない場合はTrue
     upload_file_exists: bool = Field(default=False)
     # BatchSubmissionSummaryテーブルのreport_pathがNULLじゃない場合はTrue
     report_exists: bool = Field(default=False)
     submit_date: datetime | None
     
+    batch_submission: BatchSubmission | None = Field(default=None)
+    
     # 該当学生の各課題の採点結果のリスト(SubmissionSummaryテーブルから取得してcontextで渡される)
-    submission_summary_list: list["SubmissionSummary"] = Field(default_factory=list)
+    submissions: list["Submission"] = Field(default_factory=list)
     
     model_config = {"from_attributes": True}
     
@@ -160,32 +159,12 @@ class BatchSubmissionSummary(BaseModel):
     @field_serializer("submit_date")
     def serialize_submit_date(self, submit_date: datetime | None, _info):
         return submit_date.isoformat() if submit_date is not None else None
-    
-    @field_validator("upload_file_exists")
-    def validate_upload_file_exists(cls, upload_file_exists: bool, info: ValidationInfo):
-        if info.context is not None and "upload_dir" in info.context:
-            return info.context["upload_dir"] is not None
-        else:
-            return upload_file_exists
-    
-    @field_validator("report_exists")
-    def validate_report_exists(cls, report_exists: bool, info: ValidationInfo):
-        if info.context is not None and "report_path" in info.context:
-            return info.context["report_path"] is not None
-        else:
-            return report_exists
-        
-    @field_validator("submission_summary_list")
-    def validate_submission_summary_list(cls, submission_summary_list: list["SubmissionSummary"], info: ValidationInfo):
-        if info.context is not None and "submission_summary_list" in info.context:
-            return info.context["submission_summary_list"]
-        else:
-            return submission_summary_list
 
 
 class Submission(BaseModel):
-    id: int
-    ts: datetime
+    id: int = Field(default=0)
+    ts: datetime = Field(default=datetime(year=1998, month=6, day=6))
+    evaluation_status_id: int | None = Field(default=None)
     user_id: str
     lecture_id: int
     assignment_id: int
@@ -193,15 +172,16 @@ class Submission(BaseModel):
     progress: SubmissionProgressStatus
     total_task: int
     completed_task: int
-
-    # uploaded_filesはResponseでは返さない。別のFileResponse(ZIP)で内容ごと返す
-    
-    # SubmissionSummaryから取ってくるフィールド
-    # ジャッジが終わっていない場合はNone
     result: SubmissionSummaryStatus | None = Field(default=None)
+    message: str | None = Field(default=None)
+    detail: str | None = Field(default=None)
     score: int | None = Field(default=None)
     timeMS: int | None = Field(default=None)
     memoryKB: int | None = Field(default=None)
+
+    # uploaded_filesはResponseでは返さない。別のFileResponse(ZIP)で内容ごと返す
+    
+    judge_results: list["JudgeResult"] = Field(default_factory=list)
     
     model_config = {"from_attributes": True}
     
@@ -213,32 +193,9 @@ class Submission(BaseModel):
     def serialize_ts(self, ts: datetime, _info):
         return ts.isoformat()
     
-    @field_validator("result", "score", "timeMS", "memoryKB")
-    def validate_judge_result(cls, value: int | None, info: ValidationInfo):
-        if value is None and info.field_name in info.context:
-            return info.context[info.field_name]
-        else:
-            return value
-
-
-class SubmissionSummary(Submission):
-    submission_id: int
-    batch_id: int | None
-    user_id: str
-    result: SubmissionSummaryStatus
-    message: str | None
-    detail: str | None
-    score: int
-    timeMS: int = Field(default=0)
-    memoryKB: int = Field(default=0)
-    
-    judge_results: list["JudgeResult"] = Field(default_factory=list)
-    
-    model_config = {"from_attributes": True}
-    
-    @field_serializer("result")
-    def serialize_result(self, result: SubmissionSummaryStatus, _info):
-        return result.value
+    @field_serializer("progress")
+    def serialize_progress(self, progress: SubmissionProgressStatus, _info):
+        return progress.value
 
 
 class JudgeResult(BaseModel):
@@ -299,3 +256,7 @@ class Token(BaseModel):
     @field_serializer("role")
     def serialize_role(self, role: Role, _info):
         return role.value
+
+    @field_serializer("login_time")
+    def serialize_login_time(self, login_time: datetime, _info):
+        return login_time.isoformat()
