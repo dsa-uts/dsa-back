@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_serializer, field_validator, ValidationInfo
+from pydantic import BaseModel, Field, field_serializer, field_validator, ValidationInfo, model_validator
 from datetime import datetime
 from typing import List, Optional, Dict, Literal
 from enum import Enum
@@ -116,17 +116,15 @@ class BatchSubmission(BaseModel):
     def serialize_ts(self, ts: datetime, _info):
         return ts.isoformat()
     
-    @field_validator("status")
-    def validate_status(cls, status: Literal["queued", "running", "done"]) -> Literal["queued", "running", "done"]:
-        if status not in ["queued", "running", "done"]:
-            raise ValueError("status is invalid")
-        
-        if cls.complete_judge is None or cls.total_judge is None:
-            return "queued"
-        elif cls.complete_judge == cls.total_judge:
-            return "done"
+    @model_validator(mode='after')
+    def set_status(self):
+        if self.complete_judge is None or self.total_judge is None:
+            self.status = "queued"
+        elif self.complete_judge == self.total_judge:
+            self.status = "done"
         else:
-            return "running"
+            self.status = "running"
+        return self
 
 
 class EvaluationStatus(BaseModel):
@@ -141,7 +139,7 @@ class EvaluationStatus(BaseModel):
     report_exists: bool = Field(default=False)
     submit_date: datetime | None
     
-    batch_submission: BatchSubmission | None = Field(default=None)
+    # batch_submission: BatchSubmission | None = Field(default=None)
     
     # 該当学生の各課題の採点結果のリスト(SubmissionSummaryテーブルから取得してcontextで渡される)
     submissions: list["Submission"] = Field(default_factory=list)
@@ -204,6 +202,7 @@ class JudgeResult(BaseModel):
     submission_id: int
     testcase_id: int
     result: SingleJudgeStatus
+    command: str
     timeMS: int
     memoryKB: int
     exit_code: int

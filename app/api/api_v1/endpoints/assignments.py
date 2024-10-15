@@ -428,7 +428,7 @@ async def judge_all_by_lecture(
         submission_record.score = 0
         submission_record.timeMS = 0
         submission_record.memoryKB = 0
-        assignments.modify_submission(db=db, submission_record=submission_record)
+        assignments.modify_submission(db=db, submission=submission_record)
         return [response.Submission.model_validate(submission_record)]
 
     submission_record_list = []
@@ -464,7 +464,7 @@ async def judge_all_by_lecture(
 
         # 提出エントリをキューに登録する
         submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
-        assignments.modify_submission(db=db, submission_record=submission_record)
+        assignments.modify_submission(db=db, submission=submission_record)
         submission_record_list.append(response.Submission.model_validate(submission_record))
 
     return submission_record_list
@@ -472,7 +472,7 @@ async def judge_all_by_lecture(
 
 @router.post("/batch/{lecture_id}", response_model=response.BatchSubmission)
 async def batch_judge(
-    uploaded_zip_file: Annotated[UploadFile, File(description="学生が提出するファイル")],
+    uploaded_zip_file: Annotated[UploadFile, File(description="採点者がmanabaから取得するzipファイル")],
     lecture_id: int,
     eval: Annotated[bool, Query(description="採点リソースにアクセスするかどうか")],
     db: Annotated[Session, Depends(get_db)],
@@ -746,7 +746,7 @@ async def batch_judge(
             # 提出エントリをキューに登録する
             submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
             assignments.modify_submission(
-                db=db, submission_record=submission_record
+                db=db, submission=submission_record
             )
     
     # エラーメッセージを設定する
@@ -1063,7 +1063,33 @@ async def read_submission_summary_list_for_batch(
             detail="バッチ採点エントリが見つかりません",
         )
     
+    # 完了していて、かつEvaluationStatusのresultが更新されていない場合は、更新する
+    if len(batch_submission_detail.evaluation_statuses) > 0 and batch_submission_detail.evaluation_statuses[0].result is None:
+        for evaluation_status in batch_submission_detail.evaluation_statuses:
+            # 全Submissionのresultをaggregationする
+            submission_results = [
+                submission.result for submission in evaluation_status.submissions
+            ]
+            
+            if len(submission_results) == 0:
+                # 課題が未提出の場合は、"None"とする
+                evaluation_status.result = None
+                assignments.update_evaluation_status(db, evaluation_status)
+                continue
+            
+            aggregation_result = schemas.SubmissionSummaryStatus.AC
+            for submission_result in submission_results:
+                aggregation_result = max(aggregation_result, submission_result)
+            
+            evaluation_status.result = aggregation_result
+            
+            assignments.update_evaluation_status(db, evaluation_status)
+
     ret = response.BatchSubmission.model_validate(batch_submission_detail)
+    
+    for dest, src in zip(ret.evaluation_statuses, batch_submission_detail.evaluation_statuses):
+        dest.upload_file_exists = src.upload_dir is not None
+        dest.report_exists = src.report_path is not None
     
     return ret
 
@@ -1083,16 +1109,20 @@ async def read_submission_summary_list_for_batch_user(
     
     EvaluationStatus -{ Submission -{ JudgeResultの粒度まで取得する
     """
-    batch_user_detail = assignments.get_evaluation_status(db, batch_id, user_id)
-    if batch_user_detail is None:
+    evaluation_status = assignments.get_evaluation_status(db, batch_id, user_id)
+    if evaluation_status is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="バッチ採点エントリが見つかりません",
         )
     
-    submission_summary_list = assignments.get_evaluation_status_detail(db, batch_id, user_id)
+    evaluation_status_detail = assignments.get_evaluation_status_detail(db, batch_id, user_id)
     
-    return response.EvaluationStatus.model_validate(batch_user_detail)
+    ret = response.EvaluationStatus.model_validate(evaluation_status_detail)
+    ret.upload_file_exists = evaluation_status_detail.upload_dir is not None
+    ret.report_exists = evaluation_status_detail.report_path is not None
+
+    return ret
 
 
 @router.get("/result/batch/{batch_id}/files/uploaded/{user_id}", response_class=FileResponse)

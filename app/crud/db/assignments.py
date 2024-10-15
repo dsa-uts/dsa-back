@@ -6,6 +6,7 @@ from typing import List
 from datetime import datetime
 import pytz
 from pathlib import Path
+import logging
 
 
 def get_lecture_list(db: Session) -> List[schemas.Lecture]:
@@ -395,7 +396,7 @@ def register_evaluation_status(
     バッチ採点のジャッジ結果をBatchSubmissionSummaryテーブルに登録する関数
     """
     # idは自動採番されるので、モデルに渡さない
-    new_evaluation_status = models.EvaluationStatus(**evaluation_status_record.model_dump(exclude={"batch_submission", "submissions"}))
+    new_evaluation_status = models.EvaluationStatus(**evaluation_status_record.model_dump(exclude={"id", "batch_submission", "submissions"}))
     db.add(new_evaluation_status)
     db.commit()
     db.refresh(new_evaluation_status)
