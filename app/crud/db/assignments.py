@@ -321,6 +321,9 @@ def get_batch_submission_detail(
 ) -> schemas.BatchSubmission | None:
     """
     特定のバッチ採点の詳細を取得する関数
+    
+    詳細は、BatchSubmissionテーブルのレコードと、その中に紐づくEvaluationStatusテーブルのレコードと、その中に紐づくSubmissionテーブルのレコードを取得する
+    Submissionレコードに紐づくJudgeResultテーブルのレコードは取得しない
     """
     batch_submission = (
         db.query(models.BatchSubmission)
@@ -331,7 +334,36 @@ def get_batch_submission_detail(
     if batch_submission is None:
         return None
     
-    return schemas.BatchSubmission.model_validate(batch_submission)
+    ret = schemas.BatchSubmission.model_validate(
+        {
+            **{key: getattr(batch_submission, key) for key in batch_submission.__table__.columns.keys()
+               if key not in {"evaluation_statuses"}
+            }
+        }
+    )
+    
+    for evaluation_status in batch_submission.evaluation_statuses:
+        evaluation_status_record = schemas.EvaluationStatus.model_validate(
+            {
+                **{key: getattr(evaluation_status, key) for key in evaluation_status.__table__.columns.keys()
+                   if key not in {"submissions", "batch_submission"}
+                    }
+            }
+        )
+        
+        for submission in evaluation_status.submissions:
+            submission_record = schemas.Submission.model_validate(
+                {
+                    **{key: getattr(submission, key) for key in submission.__table__.columns.keys()
+                       if key not in {"problem", "uploaded_files", "judge_results"}
+                    }
+                }
+            )
+            evaluation_status_record.submissions.append(submission_record)
+        
+        ret.evaluation_statuses.append(evaluation_status_record)
+    
+    return ret
 
 
 def get_batch_submission_list(
@@ -348,6 +380,46 @@ def get_batch_submission_list(
         .all()
     )
     
+    for batch_submission in batch_submission_list:
+        if (batch_submission.complete_judge is None or batch_submission.total_judge is None) or batch_submission.complete_judge != batch_submission.total_judge:
+            # complete_judgeとtotal_judgeを更新する
+            complete_judge = (
+                db.query(models.BatchSubmission, models.EvaluationStatus, models.Submission)
+                .join(
+                    models.EvaluationStatus,
+                    models.BatchSubmission.id == models.EvaluationStatus.batch_id
+                )
+                .join(
+                    models.Submission,
+                    models.EvaluationStatus.id == models.Submission.evaluation_status_id
+                )
+                .filter(
+                    models.BatchSubmission.id == batch_submission.id,
+                    models.Submission.progress == schemas.SubmissionProgressStatus.DONE.value
+                )
+                .count()
+            )
+            
+            total_judge = (
+                db.query(models.BatchSubmission, models.EvaluationStatus, models.Submission)
+                .join(
+                    models.EvaluationStatus,
+                    models.BatchSubmission.id == models.EvaluationStatus.batch_id
+                )
+                .join(
+                    models.Submission,
+                    models.EvaluationStatus.id == models.Submission.evaluation_status_id
+                )
+                .filter(
+                    models.BatchSubmission.id == batch_submission.id
+                )
+                .count()
+            )
+            
+            batch_submission.complete_judge = complete_judge
+            batch_submission.total_judge = total_judge
+            modify_batch_submission(db=db, batch_submission_record=batch_submission)
+        
     return [
         schemas.BatchSubmission.model_validate(
             {

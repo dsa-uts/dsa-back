@@ -294,7 +294,6 @@ class UploadedFiles(BaseModel):
 
 class JudgeResult(BaseModel):
     id: int = Field(default=0)
-    ts: datetime = Field(default=datetime(year=1998, month=6, day=6))
     submission_id: int
     testcase_id: int
     result: SingleJudgeStatus
@@ -310,11 +309,7 @@ class JudgeResult(BaseModel):
     model_config = {
         "from_attributes": True
     }
-    
-    @field_serializer("ts")
-    def serialize_ts(self, ts: datetime, _info):
-        return ts.isoformat()
-    
+
     @field_serializer("result")
     def serialize_result(self, result: SingleJudgeStatus, _info):
         return result.value
