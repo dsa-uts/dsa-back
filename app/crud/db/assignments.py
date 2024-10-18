@@ -47,6 +47,17 @@ def get_lecture(db: Session, lecture_id: int) -> schemas.Lecture | None:
         title=lecture.title,
         start_date=lecture.start_date,
         end_date=lecture.end_date,
+        problems=[
+            schemas.Problem(
+                lecture_id=problem.lecture_id,
+                assignment_id=problem.assignment_id,
+                title=problem.title,
+                description_path=problem.description_path,
+                timeMS=problem.timeMS,
+                memoryMB=problem.memoryMB,
+            )
+            for problem in lecture.problems
+        ]
     ) if lecture is not None else None
 
 
@@ -416,9 +427,17 @@ def get_batch_submission_list(
                 .count()
             )
             
-            batch_submission.complete_judge = complete_judge
-            batch_submission.total_judge = total_judge
-            modify_batch_submission(db=db, batch_submission_record=batch_submission)
+            batch_submission_record = schemas.BatchSubmission.model_validate(
+                {
+                    **{key: getattr(batch_submission, key) for key in batch_submission.__table__.columns.keys()
+                       if key not in {"evaluation_statuses"}
+                    }
+                }
+            )
+            
+            batch_submission_record.complete_judge = complete_judge
+            batch_submission_record.total_judge = total_judge
+            modify_batch_submission(db=db, batch_submission_record=batch_submission_record)
         
     return [
         schemas.BatchSubmission.model_validate(

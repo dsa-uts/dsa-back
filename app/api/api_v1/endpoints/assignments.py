@@ -151,8 +151,30 @@ async def read_lectures(
         return [response.Lecture.model_validate(lecture) for lecture in lecture_list if lecture_is_public(lecture)]
 
 
+@router.get("/info/{lecture_id}", response_model=response.Lecture)
+async def read_lecture_entry(
+    lecture_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        schemas.UserRecord,
+        Security(authenticate_util.get_current_active_user, scopes=["me"]),
+    ],
+) -> response.Lecture:
+    """
+    授業エントリを取得する
+    (課題1, 課題2, ...)
+    """
+    lecture_entry = assignments.get_lecture(db, lecture_id)
+    if lecture_entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="授業エントリが見つかりません",
+        )
+    return response.Lecture.model_validate(lecture_entry)
+
+
 @router.get("/info/{lecture_id}/{assignment_id}/entry", response_model=response.Problem)
-async def read_problem_entry(
+async def read_assignment_entry(
     lecture_id: int,
     assignment_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -197,7 +219,7 @@ async def read_problem_entry(
 
 
 @router.get("/info/{lecture_id}/{assignment_id}/detail", response_model=response.Problem)
-async def read_problem_detail(
+async def read_assignment_detail(
     lecture_id: int,
     assignment_id: int,
     eval: Annotated[bool, Query(description="採点リソースにアクセスするかどうか")],
@@ -1072,7 +1094,7 @@ async def read_submission_summary(
 
 
 @router.get("/result/batch/id/{batch_id}", response_model=response.BatchSubmission)
-async def read_submission_summary_list_for_batch(
+async def read_batch_submission_summary(
     batch_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
@@ -1140,7 +1162,7 @@ async def read_submission_summary_list_for_batch(
 
 
 @router.get("/result/batch/id/{batch_id}/user/{user_id}", response_model=response.EvaluationStatus)
-async def read_submission_summary_list_for_batch_user(
+async def read_evaluation_status_for_batch_user(
     batch_id: int,
     user_id: str,
     db: Annotated[Session, Depends(get_db)],
@@ -1171,7 +1193,7 @@ async def read_submission_summary_list_for_batch_user(
 
 
 @router.get("/result/batch/{batch_id}/files/uploaded/{user_id}", response_class=FileResponse)
-async def fetch_uploaded_files_of_batch(
+async def fetch_uploaded_files_of_evaluation_status(
     batch_id: int,
     user_id: str,
     db: Annotated[Session, Depends(get_db)],
@@ -1221,7 +1243,7 @@ async def fetch_uploaded_files_of_batch(
 
 
 @router.get("/result/batch/{batch_id}/files/report/{user_id}", response_class=FileResponse)
-async def fetch_report_of_batch(
+async def fetch_report_of_evaluation_status(
     batch_id: int,
     user_id: str,
     db: Annotated[Session, Depends(get_db)],
