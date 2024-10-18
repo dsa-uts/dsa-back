@@ -9,6 +9,7 @@ from app.api.api_v1.dependencies import (
 )
 from sqlalchemy.orm import Session
 from app.classes import schemas
+from app.classes import response
 from app.crud.db import authorize
 from app.dependencies import get_db
 import jwt
@@ -41,10 +42,10 @@ refresh_token_duration = timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
 
 @router.post("/token")
 async def login_for_access_token(
-    response: Response,
+    credentials: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[Session, Depends(get_db)],
-) -> schemas.Token:
+) -> response.Token:
     logging.info(f"login_for_access_token, form_data: {form_data.username}")
     user = authenticate_user(
         db=db, username=form_data.username, plain_password=form_data.password
@@ -111,8 +112,8 @@ async def login_for_access_token(
     )
 
     # リフレッシュトークンをクッキーにセット
-    response.delete_cookie(key="refresh_token")
-    response.set_cookie(
+    credentials.delete_cookie(key="refresh_token")
+    credentials.set_cookie(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
@@ -124,7 +125,7 @@ async def login_for_access_token(
     # LoginHistoryに登録
     authorize.add_login_history(
         db=db,
-        login_history_record=schemas.LoginHistoryRecord(
+        login_history_record=schemas.LoginHistory(
             user_id=user.user_id,
             login_at=login_at,
             logout_at=login_at + access_token_duration,
@@ -132,7 +133,7 @@ async def login_for_access_token(
         ),
     )
 
-    return schemas.Token(
+    return response.Token(
         access_token=access_token,
         token_type="bearer",
         login_time=login_at,
@@ -144,11 +145,10 @@ async def login_for_access_token(
 
 @router.get("/token/update")
 async def update_token(
-    response: Response,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     token: Annotated[str, Depends(oauth2_scheme)],
-) -> schemas.Token:
+) -> response.Token:
     logging.info(f"update_token, token: {token}")
     '''
     リフレッシュ方針
@@ -242,7 +242,7 @@ async def update_token(
     login_history.refresh_count += 1
     authorize.update_login_history(db=db, login_history_record=login_history)
 
-    return schemas.Token(
+    return response.Token(
         access_token=new_access_token,
         token_type="bearer",
         login_time=login_at,
@@ -252,17 +252,17 @@ async def update_token(
     )
 
 
-@router.post("/token/validate", response_model=schemas.TokenValidateResponse)
+@router.post("/token/validate", response_model=response.TokenValidateResponse)
 async def validate_token(
     db: Annotated[Session, Depends(get_db)],
     token: str = Depends(oauth2_scheme),
-) -> schemas.TokenValidateResponse:
+) -> response.TokenValidateResponse:
     # アクセストークンをデコードする
     token_payload = decode_token(token=token)
 
     # 有効期限が過ぎているのなら、False, 過ぎていないならTrue
     if is_past(token_payload.expire):
-        return schemas.TokenValidateResponse(is_valid=False)
+        return response.TokenValidateResponse(is_valid=False)
     
     # ログイン履歴を取得する
     login_history = authorize.get_login_history(
@@ -271,10 +271,10 @@ async def validate_token(
 
     # ログイン履歴が存在しない場合、False
     if login_history is None:
-        return schemas.TokenValidateResponse(is_valid=False)
+        return response.TokenValidateResponse(is_valid=False)
     
     # ログイン履歴が存在する場合、True
-    return schemas.TokenValidateResponse(is_valid=True)
+    return response.TokenValidateResponse(is_valid=True)
 
 
 @router.post("/logout")
