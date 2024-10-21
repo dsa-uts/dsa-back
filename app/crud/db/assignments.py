@@ -469,14 +469,19 @@ def get_arranged_files(
     """
     特定の提出エントリに紐づいたアレンジされたファイルのリストを取得する関数
     """
-    arranged_files = (
-        db.query(models.ArrangedFiles)
-        .filter(models.ArrangedFiles.lecture_id == lecture_id, 
-                models.ArrangedFiles.assignment_id == assignment_id, 
-                # 評価用の提出の場合、eval=Trueのものも取得する
-                or_(eval == False, models.ArrangedFiles.eval == eval))
-        .all()
+    query = db.query(models.ArrangedFiles).filter(
+        models.ArrangedFiles.lecture_id == lecture_id,
+        models.ArrangedFiles.assignment_id == assignment_id
     )
+    
+    if eval:
+        # eval=Trueの場合、evalがFalseまたはTrueのものを取得
+        query = query.filter(or_(models.ArrangedFiles.eval == False, models.ArrangedFiles.eval == True))
+    else:
+        # eval=Falseの場合、evalがFalseのもののみ取得
+        query = query.filter(models.ArrangedFiles.eval == False)
+    
+    arranged_files = query.all()
     return [schemas.ArrangedFiles.model_validate(arranged_file) for arranged_file in arranged_files]
 
 

@@ -160,7 +160,7 @@ async def register_multiple_users(
     user_file_dir = Path(constant.UPLOAD_DIR) / "users"
     user_file_dir.mkdir(parents=True, exist_ok=True)
     file_path = user_file_dir / f"{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.csv"
-    df.to_csv(file_path, index=False, encoding="shift-jis")
+    df.to_csv(file_path, index=False, encoding="utf-8")
 
     # Return the updated file to the client
     return FileResponse(file_path, filename=file_path.name)
