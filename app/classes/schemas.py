@@ -78,9 +78,7 @@ class SubmissionSummaryStatus(BaseJudgeStatusWithOrder):
     IE = "IE"  # Internal Error (e.g., docker sandbox management)
     FN = "FN"  # File Not found
 
-
 ######################## DBからのマッピング用スキーマ ###############################
-
 
 class Lecture(BaseModel):
     id: int
@@ -114,7 +112,9 @@ class Problem(BaseModel):
     required_files: list["RequiredFiles"] = Field(default_factory=list)
     test_cases: list["TestCases"] = Field(default_factory=list)
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True
+    }
 
 
 class Executables(BaseModel):
@@ -124,7 +124,9 @@ class Executables(BaseModel):
     eval: bool
     name: str
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True
+    }
 
 
 class ArrangedFiles(BaseModel):
@@ -134,7 +136,9 @@ class ArrangedFiles(BaseModel):
     eval: bool
     path: str
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True
+    }
 
 
 class RequiredFiles(BaseModel):
@@ -143,7 +147,9 @@ class RequiredFiles(BaseModel):
     assignment_id: int
     name: str
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True
+    }
 
 
 class EvaluationType(Enum):
@@ -168,7 +174,9 @@ class TestCases(BaseModel):
     stderr_path: str | None
     exit_code: int
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True
+    }
 
     @field_serializer("type")
     def serialize_type(self, type: EvaluationType, _info):
@@ -186,7 +194,9 @@ class BatchSubmission(BaseModel):
 
     evaluation_statuses: list["EvaluationStatus"] = Field(default_factory=list)
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True
+    }
 
     @field_serializer("ts")
     def serialize_ts(self, ts: datetime, _info):
@@ -212,7 +222,9 @@ class EvaluationStatus(BaseModel):
     # 該当学生の各課題の採点結果のリスト(SubmissionSummaryテーブルから取得)
     submissions: list["Submission"] = Field(default_factory=list)
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True
+    }
 
     @field_serializer("status")
     def serialize_status(self, status: StudentSubmissionStatus, _info):
@@ -290,7 +302,9 @@ class JudgeResult(BaseModel):
 
     testcase: TestCases | None = Field(default=None)
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True
+    }
 
     @field_serializer("result")
     def serialize_result(self, result: SingleJudgeStatus, _info):
