@@ -294,6 +294,12 @@ async def update_password(
 
     # adminは全てのパスワードを更新可能
     if user_role is schemas.Role.admin:
+        target_user = crud_users.get_user(db=db, user_id=user.user_id)
+        if target_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="指定されたユーザーが見つかりません",
+            )
         crud_users.update_password(db, user.user_id, new_hashed_password)
         return response.Message(message="パスワードが正常に更新されました")
 
