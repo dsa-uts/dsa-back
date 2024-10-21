@@ -10,7 +10,7 @@ from typing import Annotated
 from sqlalchemy.orm import Session
 from ....crud.db import users
 from ....dependencies import get_db
-from ....classes.schemas import UserCreate, UserDelete
+from ....classes.schemas import UserCreate, UserDelete, UserUpdatePassword
 from typing import List
 import logging
 from pydantic import ValidationError
@@ -239,3 +239,65 @@ async def get_user_info(
     if user_record is None:
         raise HTTPException(status_code=404, detail="User not found")
     return response.User.model_validate(user_record)
+
+
+@router.post("/update/password")
+async def update_password(
+    user: UserUpdatePassword,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        schemas.UserRecord,
+        Security(authenticate_util.get_current_user, scopes=["me"]),
+    ],
+) -> response.Message:
+    user_role = current_user.role
+    new_hashed_password = authenticate_util.get_password_hash(user.new_plain_password)
+
+    # 自分のパスワードの更新は全員が可能．
+    if current_user.user_id == user.user_id:
+        # 現在のパスワードを検証
+        if not authenticate_util.verify_password(
+            user.plain_password, current_user.hashed_password
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="現在のパスワードが正しくありません",
+            )
+
+        # パスワードを更新
+        crud_users.update_password(db, user.user_id, new_hashed_password)
+        return response.Message(message="パスワードが正常に更新されました")
+
+    # managerは自分のパスワードと学生のパスワードを更新可能．
+    if user_role is schemas.Role.manager:
+        # user.user_idのユーザー情報を取得
+        target_user = crud_users.get_user(db=db, user_id=user.user_id)
+        if target_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="指定されたユーザーが見つかりません",
+            )
+
+        # 対象ユーザーのロールを取得
+        target_user_role = target_user.role
+
+        # managerは学生のパスワードのみ更新可能
+        if target_user_role != schemas.Role.student:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="管理者は学生のパスワードのみ更新可能です",
+            )
+
+        # パスワードを更新
+        crud_users.update_password(db, user.user_id, new_hashed_password)
+        return response.Message(message="パスワードが正常に更新されました")
+
+    # adminは全てのパスワードを更新可能
+    if user_role is schemas.Role.admin:
+        crud_users.update_password(db, user.user_id, new_hashed_password)
+        return response.Message(message="パスワードが正常に更新されました")
+
+    # その他のユーザーはパスワードの更新はできない
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN, detail="パスワードの更新はできません"
+    )

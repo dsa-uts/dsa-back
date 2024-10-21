@@ -78,7 +78,9 @@ class SubmissionSummaryStatus(BaseJudgeStatusWithOrder):
     IE = "IE"  # Internal Error (e.g., docker sandbox management)
     FN = "FN"  # File Not found
 
+
 ######################## DBからのマッピング用スキーマ ###############################
+
 
 class Lecture(BaseModel):
     id: int
@@ -88,14 +90,12 @@ class Lecture(BaseModel):
 
     problems: list["Problem"] = Field(default_factory=list)
 
-    model_config = {
-        "from_attributes": True
-    }
-    
+    model_config = {"from_attributes": True}
+
     @field_serializer("start_date")
     def serialize_start_date(self, start_date: datetime, _info):
         return start_date.isoformat()
-    
+
     @field_serializer("end_date")
     def serialize_end_date(self, end_date: datetime, _info):
         return end_date.isoformat()
@@ -108,15 +108,13 @@ class Problem(BaseModel):
     description_path: str
     timeMS: int
     memoryMB: int
-    
+
     executables: list["Executables"] = Field(default_factory=list)
     arranged_files: list["ArrangedFiles"] = Field(default_factory=list)
     required_files: list["RequiredFiles"] = Field(default_factory=list)
     test_cases: list["TestCases"] = Field(default_factory=list)
-    
-    model_config = {
-        "from_attributes": True
-    }
+
+    model_config = {"from_attributes": True}
 
 
 class Executables(BaseModel):
@@ -125,10 +123,8 @@ class Executables(BaseModel):
     assignment_id: int
     eval: bool
     name: str
-    
-    model_config = {
-        "from_attributes": True
-    }
+
+    model_config = {"from_attributes": True}
 
 
 class ArrangedFiles(BaseModel):
@@ -137,10 +133,8 @@ class ArrangedFiles(BaseModel):
     assignment_id: int
     eval: bool
     path: str
-    
-    model_config = {
-        "from_attributes": True
-    }
+
+    model_config = {"from_attributes": True}
 
 
 class RequiredFiles(BaseModel):
@@ -148,10 +142,8 @@ class RequiredFiles(BaseModel):
     lecture_id: int
     assignment_id: int
     name: str
-    
-    model_config = {
-        "from_attributes": True
-    }
+
+    model_config = {"from_attributes": True}
 
 
 class EvaluationType(Enum):
@@ -175,11 +167,9 @@ class TestCases(BaseModel):
     stdout_path: str | None
     stderr_path: str | None
     exit_code: int
-    
-    model_config = {
-        "from_attributes": True
-    }
-    
+
+    model_config = {"from_attributes": True}
+
     @field_serializer("type")
     def serialize_type(self, type: EvaluationType, _info):
         return type.value
@@ -193,13 +183,11 @@ class BatchSubmission(BaseModel):
     message: str | None
     complete_judge: int | None
     total_judge: int | None
-    
+
     evaluation_statuses: list["EvaluationStatus"] = Field(default_factory=list)
-    
-    model_config = {
-        "from_attributes": True
-    }
-    
+
+    model_config = {"from_attributes": True}
+
     @field_serializer("ts")
     def serialize_ts(self, ts: datetime, _info):
         return ts.isoformat()
@@ -220,22 +208,20 @@ class EvaluationStatus(BaseModel):
     upload_dir: str | None = Field(default=None)
     report_path: str | None = Field(default=None)
     submit_date: datetime | None = Field(default=None)
-    
+
     # 該当学生の各課題の採点結果のリスト(SubmissionSummaryテーブルから取得)
     submissions: list["Submission"] = Field(default_factory=list)
-    
-    model_config = {
-        "from_attributes": True
-    }
-    
+
+    model_config = {"from_attributes": True}
+
     @field_serializer("status")
     def serialize_status(self, status: StudentSubmissionStatus, _info):
         return status.value
-    
+
     @field_serializer("result")
     def serialize_result(self, result: SubmissionSummaryStatus, _info):
         return result.value if result is not None else None
-    
+
     @field_serializer("submit_date")
     def serialize_submit_date(self, submit_date: datetime | None, _info):
         return submit_date.isoformat() if submit_date is not None else None
@@ -258,9 +244,9 @@ class Submission(BaseModel):
     score: int | None = Field(default=None)
     timeMS: int | None = Field(default=None)
     memoryKB: int | None = Field(default=None)
-    
+
     problem: Problem | None = Field(default=None)
-    
+
     uploaded_files: list["UploadedFiles"] = Field(default_factory=list)
     judge_results: list["JudgeResult"] = Field(default_factory=list)
 
@@ -268,7 +254,7 @@ class Submission(BaseModel):
         # sqlalchemyのレコードデータからマッピングするための設定
         "from_attributes": True
     }
-    
+
     @field_serializer("ts")
     def serialize_ts(self, ts: datetime, _info):
         return ts.isoformat()
@@ -276,7 +262,7 @@ class Submission(BaseModel):
     @field_serializer("progress")
     def serialize_progress(self, progress: SubmissionProgressStatus, _info):
         return progress.value
-    
+
     @field_serializer("result")
     def serialize_result(self, result: SubmissionSummaryStatus, _info):
         return result.value if result is not None else None
@@ -286,10 +272,8 @@ class UploadedFiles(BaseModel):
     id: int = Field(default=0)
     submission_id: int
     path: str
-    
-    model_config = {
-        "from_attributes": True
-    }
+
+    model_config = {"from_attributes": True}
 
 
 class JudgeResult(BaseModel):
@@ -303,12 +287,10 @@ class JudgeResult(BaseModel):
     exit_code: int
     stdout: str
     stderr: str
-    
+
     testcase: TestCases | None = Field(default=None)
-    
-    model_config = {
-        "from_attributes": True
-    }
+
+    model_config = {"from_attributes": True}
 
     @field_serializer("result")
     def serialize_result(self, result: SingleJudgeStatus, _info):
@@ -325,11 +307,11 @@ class LoginHistory(BaseModel):
         # sqlalchemyのレコードデータからマッピングするための設定
         "from_attributes": True
     }
-    
+
     @field_serializer("login_at")
     def serialize_login_at(self, login_at: datetime, _info):
         return login_at.isoformat()
-    
+
     @field_serializer("logout_at")
     def serialize_logout_at(self, logout_at: datetime, _info):
         return logout_at.isoformat()
@@ -352,17 +334,19 @@ class UserRecord(BaseModel):
     updated_at: datetime
     active_start_date: datetime
     active_end_date: datetime
-    
+
     @field_serializer("role")
     def serialize_role(self, role: Role, _info):
         return role.value
-    
+
     model_config = {
         # sqlalchemyのレコードデータからマッピングするための設定
         "from_attributes": True
     }
 
+
 ################################################################################
+
 
 class UserCreate(BaseModel):
     user_id: str
@@ -377,6 +361,13 @@ class UserCreate(BaseModel):
 
 class UserDelete(BaseModel):
     user_ids: List[str]
+
+
+class UserUpdatePassword(BaseModel):
+    user_id: str
+    plain_password: str
+    new_plain_password: str
+
 
 # JWTトークンのペイロード({"sub": ..., "login": ...,...)})
 class JWTTokenPayload(BaseModel):

@@ -35,12 +35,20 @@ def create_user(db: Session, user: schemas.UserRecord) -> schemas.UserRecord:
     except Exception as e:
         db.rollback()
         raise e
-    
+
 
 def delete_users(db: Session, user_ids: List[str]) -> None:
     db.query(models.Users).filter(models.Users.user_id.in_(user_ids)).delete()
     db.commit()
-    
+
+
+def update_password(db: Session, user_id: str, new_hashed_password: str) -> None:
+    user = db.query(models.Users).filter(models.Users.user_id == user_id).first()
+    if user:
+        user.hashed_password = new_hashed_password
+        db.commit()
+    return None
+
 
 def update_disabled_status(db: Session, user_id: str, disabled: bool) -> None:
     user = db.query(models.Users).filter(models.Users.user_id == user_id).first()
@@ -51,5 +59,9 @@ def update_disabled_status(db: Session, user_id: str, disabled: bool) -> None:
 
 
 def admin_user_exists(db: Session) -> bool:
-    user = db.query(models.Users).filter(models.Users.user_id == constants.ADMIN_USER_ID).first()
+    user = (
+        db.query(models.Users)
+        .filter(models.Users.user_id == constants.ADMIN_USER_ID)
+        .first()
+    )
     return user is not None
