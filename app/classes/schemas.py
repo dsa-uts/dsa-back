@@ -88,7 +88,9 @@ class Lecture(BaseModel):
 
     problems: list["Problem"] = Field(default_factory=list)
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True
+    }
 
     @field_serializer("start_date")
     def serialize_start_date(self, start_date: datetime, _info):
@@ -285,7 +287,9 @@ class UploadedFiles(BaseModel):
     submission_id: int
     path: str
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True
+    }
 
 
 class JudgeResult(BaseModel):
@@ -358,9 +362,7 @@ class UserRecord(BaseModel):
         "from_attributes": True
     }
 
-
 ################################################################################
-
 
 class UserCreate(BaseModel):
     user_id: str
