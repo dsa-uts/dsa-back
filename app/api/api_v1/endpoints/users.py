@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse
 from datetime import datetime
 from app import constants as constant
 from pathlib import Path
-
+from typing import Optional
 logging.basicConfig(level=logging.DEBUG)
 
 router = APIRouter()
@@ -165,6 +165,66 @@ async def register_multiple_users(
     # Return the updated file to the client
     return FileResponse(file_path, filename=file_path.name)
 
+@router.post("/update/user")
+async def update_user(
+    user: UserCreate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[
+        schemas.UserRecord,
+        Security(authenticate_util.get_current_user, scopes=["view_users"]),
+    ],
+) -> response.Message:
+    if db is None or current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized"
+        )
+
+    # plain_passwordが空でない場合はハッシュ化したパスワードを取得
+    if user.plain_password:
+        hashed_password = authenticate_util.get_password_hash(user.plain_password)
+    else:
+        hashed_password = ""
+
+    ########################### Vital ######################################
+    # 現状は、role: adminのユーザをAPI経由で作成することはできないようにする。
+    if user.role == schemas.Role.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden to update admin user.",
+        )
+    # role: managerは自分自身とstudentのユーザーを更新可能
+    if current_user.role == schemas.Role.manager:
+        if user.role != schemas.Role.student and user.user_id != current_user.user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden to update user.",
+            )
+    #######################################################################
+
+    # UserRecordオブジェクトを作成
+    user_data = schemas.UserRecord(
+        user_id=user.user_id,
+        username=user.username,
+        email=user.email,
+        hashed_password=hashed_password,
+        role=user.role,
+        disabled=user.disabled,
+        created_at=authenticate_util.get_current_time(), # Noneが使えないので，便宜的に書いているがcrud_users.update_userで除外される．
+        updated_at=authenticate_util.get_current_time(),
+        active_start_date=user.active_start_date or authenticate_util.get_current_time(),
+        active_end_date=user.active_end_date or (authenticate_util.get_current_time() + timedelta(days=365))
+    )
+
+    try:
+        # ユーザー情報を更新
+        updated_user = crud_users.update_user(db, user_data)
+        return response.Message(message=f"ユーザー {updated_user.user_id} の情報が正常に更新されました。")
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"ユーザー更新中にエラーが発生しました: {str(e)}")
+    pass
+
 
 @router.get("/all", response_model=List[response.User])
 async def get_users_list(
@@ -174,11 +234,14 @@ async def get_users_list(
         schemas.UserRecord,
         Security(authenticate_util.get_current_user, scopes=["view_users"]),
     ],
+    # TAは自分とstudentのユーザーを取得可能
+    user_id: Optional[int] = None,
+    role: Optional[str] = None
 ) -> List[response.User]:
     # パスワードを除外して返す
     return [
         response.User.model_validate(user.model_dump(exclude={"hashed_password"}))
-        for user in crud_users.get_users(db=db)
+        for user in crud_users.get_users(db=db, user_id=user_id, role=role)
     ]
 
 
@@ -252,7 +315,7 @@ async def update_password(
 ) -> response.Message:
     user_role = current_user.role
     new_hashed_password = authenticate_util.get_password_hash(user.new_plain_password)
-
+    current_time = authenticate_util.get_current_time()
     # 自分のパスワードの更新は全員が可能．
     if current_user.user_id == user.user_id:
         # 現在のパスワードを検証
@@ -265,7 +328,7 @@ async def update_password(
             )
 
         # パスワードを更新
-        crud_users.update_password(db, user.user_id, new_hashed_password)
+        crud_users.update_password(db, user.user_id, new_hashed_password, current_time)
         return response.Message(message="パスワードが正常に更新されました")
 
     # managerは自分のパスワードと学生のパスワードを更新可能．
@@ -289,7 +352,7 @@ async def update_password(
             )
 
         # パスワードを更新
-        crud_users.update_password(db, user.user_id, new_hashed_password)
+        crud_users.update_password(db, user.user_id, new_hashed_password, current_time)
         return response.Message(message="パスワードが正常に更新されました")
 
     # adminは全てのパスワードを更新可能
@@ -300,7 +363,7 @@ async def update_password(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="指定されたユーザーが見つかりません",
             )
-        crud_users.update_password(db, user.user_id, new_hashed_password)
+        crud_users.update_password(db, user.user_id, new_hashed_password, current_time)
         return response.Message(message="パスワードが正常に更新されました")
 
     # その他のユーザーはパスワードの更新はできない
