@@ -9,7 +9,7 @@ from pytz import timezone
 from fastapi import UploadFile, File, HTTPException, Security, status
 from fastapi.responses import FileResponse
 from app.api.api_v1.endpoints import authenticate_util
-from typing import Annotated
+from typing import Annotated, Optional
 import logging
 from app import constants as constant
 import shutil
@@ -991,15 +991,20 @@ async def read_uploaded_file_list(
 # バッチ採点に関しては、ManagerとAdminが全てのバッチ採点の進捗状況を見れるようにしている。
 
 
-@router.get("/status/batch/all", response_model=List[response.BatchSubmission])
+@router.get("/status/batch/all", response_model=response.BatchSubmissionItemsForListView)
 async def read_all_batch_status(
     page: int,
+    page_size: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> List[response.BatchSubmission]:
+    lecture_title: Optional[str] = Query(default=None, description="講義名を指定して取得する"),
+    user: Optional[str] = Query(default=None, description="ユーザ名またはuser_idを指定して取得する"),
+    sort_by: Optional[Literal["ts", "user_id", "lecture_id"]] = Query(default="ts", description="ソートするカラムを指定する"),
+    sort_order: Optional[Literal["asc", "desc"]] = Query(default="desc", description="ソート順を指定する"),
+) -> response.BatchSubmissionItemsForListView:
     """
     全てのバッチ採点の進捗状況を取得する
     """
@@ -1009,9 +1014,46 @@ async def read_all_batch_status(
             detail="ページは1以上である必要があります",
         )
 
-    batch_submission_record_list = assignments.get_batch_submission_list(db, limit=20, offset=(page - 1) * 20)
+    batch_submission_record_list, total_count = assignments.get_batch_submission_list(
+        db=db, 
+        limit=page_size, 
+        offset=(page - 1) * page_size, 
+        lecture_title=lecture_title, 
+        user=user, 
+        sort_by=sort_by, 
+        sort_order=sort_order
+    )
 
-    return [response.BatchSubmission.model_validate(batch_submission_record) for batch_submission_record in batch_submission_record_list]
+    # ユーザーIDとユーザー名のマッピングを作成
+    user_map = {user.user_id: user.username for user in users.get_users(db=db, user_id=None, roles=[schemas.Role.manager.value, schemas.Role.admin.value])}
+    
+    # 講義IDと講義タイトルのマッピングを作成
+    lecture_map = {lecture.id: lecture.title for lecture in assignments.get_lecture_list(db=db)}
+
+    batch_submission_items = []
+    for record in batch_submission_record_list:
+        item = response.BatchSubmissionItemForListView.model_validate({
+            "id": record.id,
+            "ts": record.ts,
+            "user_id": record.user_id,
+            "username": user_map.get(record.user_id, "不明"),
+            "lecture_id": record.lecture_id,
+            "lecture_title": lecture_map.get(record.lecture_id, "不明"),
+            "message": record.message,
+            "complete_judge": record.complete_judge,
+            "total_judge": record.total_judge
+        })
+        batch_submission_items.append(item)
+    
+    total_pages = (total_count + page_size - 1) // page_size
+
+    return response.BatchSubmissionItemsForListView(
+        items=batch_submission_items,
+        total_items=total_count,
+        current_page=page,
+        total_pages=total_pages,
+        page_size=page_size
+    )
 
 
 @router.get("/status/batch/id/{batch_id}", response_model=response.BatchSubmission)

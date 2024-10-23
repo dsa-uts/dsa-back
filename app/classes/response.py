@@ -126,6 +126,45 @@ class BatchSubmission(BaseModel):
             self.status = "running"
         return self
 
+class BatchSubmissionItemForListView(BaseModel):
+    id: int
+    ts: datetime
+    user_id: str
+    username: str
+    lecture_id: int
+    lecture_title: str
+    message: str | None
+    status: Literal["queued", "running", "done"] = Field(default="queued")
+    complete_judge: int | None
+    total_judge: int | None
+    
+    evaluation_statuses: list["EvaluationStatus"] = Field(default_factory=list)
+    
+    model_config = {"from_attributes": True}
+    
+    @field_serializer("ts")
+    def serialize_ts(self, ts: datetime, _info):
+        return ts.isoformat()
+    
+    @model_validator(mode='after')
+    def set_status(self):
+        if self.complete_judge is None or self.total_judge is None:
+            self.status = "queued"
+        elif self.complete_judge == self.total_judge:
+            self.status = "done"
+        else:
+            self.status = "running"
+        return self
+
+class BatchSubmissionItemsForListView(BaseModel):
+    items: list[BatchSubmissionItemForListView] = Field(default_factory=list)
+    total_items: int
+    current_page: int
+    total_pages: int
+    page_size: int
+
+    model_config = {"from_attributes": True}
+
 
 class EvaluationStatus(BaseModel):
     id: int = Field(default=0)
