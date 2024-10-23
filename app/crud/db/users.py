@@ -16,14 +16,14 @@ def get_user(db: Session, user_id: str) -> schemas.UserRecord | None:
     return schemas.UserRecord.model_validate(user) if user else None
 
 
-def get_users(db: Session, user_id: Optional[int] = None, role: Optional[str] = None) -> List[schemas.UserRecord]:
+def get_users(db: Session, user_id: Optional[int] = None, roles: Optional[List[str]] = None) -> List[schemas.UserRecord]:
     query = db.query(models.Users)
-    if user_id or role:
+    if user_id or roles:
         filter_conditions = []
         if user_id:
             filter_conditions.append(models.Users.user_id == user_id)
-        if role:
-            filter_conditions.append(models.Users.role == role)
+        if roles:
+            filter_conditions.append(models.Users.role.in_(roles))
         query = query.filter(or_(*filter_conditions))
     users = query.all()
     return [schemas.UserRecord.model_validate(user) for user in users]

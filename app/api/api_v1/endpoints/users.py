@@ -235,13 +235,14 @@ async def get_users_list(
         Security(authenticate_util.get_current_user, scopes=["view_users"]),
     ],
     # TAは自分とstudentのユーザーを取得可能
-    user_id: Optional[int] = None,
+    user_id: Optional[str] = None,
     role: Optional[str] = None
 ) -> List[response.User]:
     # パスワードを除外して返す
+    roles = [r.strip() for r in role.split(',')] if role else None
     return [
         response.User.model_validate(user.model_dump(exclude={"hashed_password"}))
-        for user in crud_users.get_users(db=db, user_id=user_id, role=role)
+        for user in crud_users.get_users(db=db, user_id=user_id, roles=roles)
     ]
 
 

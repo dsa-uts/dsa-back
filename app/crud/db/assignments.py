@@ -1,8 +1,8 @@
 from app.classes import schemas
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, asc, desc
 from ...classes import models
-from typing import List
+from typing import List, Literal, Tuple
 from datetime import datetime
 import pytz
 from pathlib import Path
@@ -378,14 +378,57 @@ def get_batch_submission_detail(
 
 
 def get_batch_submission_list(
-    db: Session, limit: int = 10, offset: int = 0
-) -> List[schemas.BatchSubmission]:
+    db: Session,
+    limit: int = 20,
+    offset: int = 0,
+    lecture_title: str | None = None,
+    user: str | None = None,
+    sort_by: Literal["ts", "user_id", "lecture_id"] = "ts",
+    sort_order: Literal["asc", "desc"] = "desc"
+) -> Tuple[List[schemas.BatchSubmission], int]:
     """
     全てのバッチ採点の進捗状況を取得する関数
     """
+    query = db.query(models.BatchSubmission)
+    # lecture_titleからlecture_idを取得
+    if lecture_title:
+        # lecture_titleの部分一致検索
+        lecture_ids = db.query(models.Lecture.id).filter(models.Lecture.title.ilike(f"%{lecture_title}%")).all()
+        if lecture_ids:
+            query = query.filter(models.BatchSubmission.lecture_id.in_([id for (id,) in lecture_ids]))
+        else:
+            # 指定されているものの該当するlecture_titleが存在しない場合は空のリストを返す
+            return [], 0
+
+    if user:
+        # userの部分一致検索（user_idまたはusername）
+        user_ids = db.query(models.Users.user_id).filter(
+            or_(
+                models.Users.user_id.ilike(f"%{user}%"),
+                models.Users.username.ilike(f"%{user}%")
+            )
+        ).all()
+        if user_ids:
+            query = query.filter(models.BatchSubmission.user_id.in_([id for (id,) in user_ids]))
+        else:
+            # 指定されているものの該当するuserが存在しない場合は空のリストを返す
+            return [], 0
+
+    
+    # 総データ数を取得
+    total_count = query.count()
+
+    # ソート順を設定
+    sort_column = getattr(models.BatchSubmission, sort_by)
+    if sort_order == "desc":
+        sort_column = desc(sort_column)
+    else:
+        sort_column = asc(sort_column)
+
+    # ソートとページネーションを適用
     batch_submission_list = (
-        db.query(models.BatchSubmission)
-        .order_by(models.BatchSubmission.id.desc())
+        query
+        .order_by(sort_column)
         .limit(limit)
         .offset(offset)
         .all()
@@ -430,7 +473,7 @@ def get_batch_submission_list(
             batch_submission_record = schemas.BatchSubmission.model_validate(
                 {
                     **{key: getattr(batch_submission, key) for key in batch_submission.__table__.columns.keys()
-                       if key not in {"evaluation_statuses"}
+                        if key not in {"evaluation_statuses"}
                     }
                 }
             )
@@ -439,16 +482,17 @@ def get_batch_submission_list(
             batch_submission_record.total_judge = total_judge
             modify_batch_submission(db=db, batch_submission_record=batch_submission_record)
         
-    return [
+    result = [
         schemas.BatchSubmission.model_validate(
             {
                 **{key: getattr(batch_submission, key) for key in batch_submission.__table__.columns.keys()
-                   if key not in {"evaluation_statuses"}
+                    if key not in {"evaluation_statuses"}
                 }
             }
         )
         for batch_submission in batch_submission_list
     ]
+    return result, total_count
 
 
 def get_uploaded_files(
