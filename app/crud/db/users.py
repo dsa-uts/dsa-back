@@ -64,7 +64,12 @@ def update_user(db: Session, user: schemas.UserRecord) -> schemas.UserRecord:
 
 
 def delete_users(db: Session, user_ids: List[str]) -> None:
-    db.query(models.Users).filter(models.Users.user_id.in_(user_ids)).delete()
+    # まず、関連するEvaluationStatusを削除
+    db.query(models.EvaluationStatus).filter(models.EvaluationStatus.user_id.in_(user_ids)).delete(synchronize_session=False)
+    
+    # 次に、ユーザーを削除
+    db.query(models.Users).filter(models.Users.user_id.in_(user_ids)).delete(synchronize_session=False)
+    
     db.commit()
 
 
