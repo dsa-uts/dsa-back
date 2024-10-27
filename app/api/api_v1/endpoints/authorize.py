@@ -204,7 +204,7 @@ async def update_token(
         
     # アクセストークンの有効期限が切れていない場合、元のアクセストークンを返す
     if not is_past(access_token_payload.expire):
-        return schemas.Token(
+        return response.Token(
             access_token=token,
             token_type="bearer",
             login_time=access_token_payload.login,
@@ -212,14 +212,6 @@ async def update_token(
             role=access_token_payload.role,
             refresh_count=login_history.refresh_count,
         )
-
-    # # リフレッシュ回数が上限値を超えているのならば、該当ログイン履歴を削除し、HTTPExceptionを吐く
-    # if login_history.refresh_count > 3:
-    #     # authorize.remove_login_history(db=db, user_id=user_id, login_at=login_at)
-    #     raise HTTPException(
-    #         status_code=status.HTTP_401_UNAUTHORIZED,
-    #         detail="your login session has expired",
-    #     )
 
     # アクセストークンが無効でリフレッシュトークンが有効のとき、
     # 新しいアクセストークンとリフレッシュトークンを発行する

@@ -243,7 +243,7 @@ async def read_assignment_detail(
         )
 
     if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
-        if not lecture_is_public():
+        if not lecture_is_public(lecture_entry=lecture_entry):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="授業エントリが公開期間内ではありません",
@@ -957,7 +957,7 @@ async def read_uploaded_file_list(
             )
         
         # 評価問題の提出は取得できない
-        if submission_record.for_evaluation:
+        if submission_record.eval:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="評価問題の提出は取得できません",

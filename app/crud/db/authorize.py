@@ -26,7 +26,7 @@ def get_login_history(db: Session, user_id: str, login_at: datetime) -> schemas.
         models.LoginHistory.login_at == login_at
     ).first()
     if raw_login_history is not None:
-        return models.LoginHistory.model_validate(raw_login_history)
+        return schemas.LoginHistory.model_validate(raw_login_history)
     return None
 
 
