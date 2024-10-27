@@ -14,6 +14,7 @@ from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
 from fastapi import HTTPException, status
 import app.crud.db.users as crud_users
+import app.crud.db.authorize as crud_authorize
 from fastapi import Depends, Security
 from fastapi.security import SecurityScopes
 from typing import Annotated
@@ -34,8 +35,10 @@ def generate_password(length=10):
 def get_current_time() -> datetime:
     """
     現在の時刻を取得する
+    
+    さらに、秒単位に丸める
     """
-    return datetime.now(TOKYO_TZ)
+    return datetime.now(TOKYO_TZ).replace(microsecond=0)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -163,6 +166,14 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Not enough permissions",
             )
+    
+    # ログイン履歴に存在しないなら、401エラーを返す
+    login_history = crud_authorize.get_login_history(db=db, user_id=user.user_id, login_at=token_payload.login)
+    if login_history is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User is not logged in",
+        )
     
     return user
 
