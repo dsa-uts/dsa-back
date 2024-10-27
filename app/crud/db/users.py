@@ -16,7 +16,7 @@ def get_user(db: Session, user_id: str) -> schemas.UserRecord | None:
     return schemas.UserRecord.model_validate(user) if user else None
 
 
-def get_users(db: Session, user_id: Optional[int] = None, roles: Optional[List[str]] = None) -> List[schemas.UserRecord]:
+def get_users(db: Session, user_id: Optional[str] = None, roles: Optional[List[str]] = None) -> List[schemas.UserRecord]:
     query = db.query(models.Users)
     if user_id or roles:
         filter_conditions = []
