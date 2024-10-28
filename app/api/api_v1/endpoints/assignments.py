@@ -821,6 +821,18 @@ async def batch_judge(
     # total_judgeの値を更新する
     batch_submission_record.complete_judge = 0
     batch_submission_record.total_judge = total_judge
+
+    users_map = {user.user_id: user.username for user in users.get_users(db=db, user_id=None, roles=None)}
+    lecture_map = {
+        lecture.id: response.Lecture.model_validate(lecture)
+        for lecture in assignments.get_lecture_list(db=db)
+    }
+
+    # EvaluationStatusのusernameとlectureを更新
+    for evaluation_status in batch_submission_record.evaluation_statuses:
+        evaluation_status.username = users_map.get(evaluation_status.user_id, "不明")
+        evaluation_status.lecture = lecture_map.get(evaluation_status.lecture_id)
+
     assignments.modify_batch_submission(db=db, batch_submission_record=batch_submission_record)
 
     return response.BatchSubmission.model_validate(batch_submission_record)
@@ -1075,6 +1087,19 @@ async def read_batch_status(
             detail="バッチ採点エントリが見つかりません",
         )
 
+    users_map = {user.user_id: user.username for user in users.get_users(db=db, user_id=None, roles=None)}
+    lecture_map = {
+        lecture.id: response.Lecture.model_validate(lecture)
+        for lecture in assignments.get_lecture_list(db=db)
+    }
+
+    # EvaluationStatusのusernameとlectureを更新
+    for evaluation_status in batch_submission_status.evaluation_statuses:
+        evaluation_status.username = users_map.get(evaluation_status.user_id, "不明")
+        evaluation_status.lecture = lecture_map.get(evaluation_status.lecture_id)
+
+
+
     return response.BatchSubmission.model_validate(batch_submission_status)
 
 
@@ -1256,7 +1281,24 @@ async def read_evaluation_status_for_batch_user(
     
     evaluation_status_detail = assignments.get_evaluation_status_detail(db, batch_id, user_id)
     
-    ret = response.EvaluationStatus.model_validate(evaluation_status_detail)
+    # ユーザー名を取得
+    user = users.get_user(db, user_id)
+    username = user.username if user else "不明"
+    
+    # バッチ提出から講義情報を取得
+    batch_submission = assignments.get_batch_submission_status(db, batch_id)
+    lecture_id = batch_submission.lecture_id if batch_submission else None
+    lecture = assignments.get_lecture(db, lecture_id) if lecture_id else None
+    
+    # dictとして必要な情報を追加
+    evaluation_status_dict = {
+        **evaluation_status_detail.dict(),
+        "username": username,
+        "lecture_id": lecture_id,
+        "lecture": lecture
+    }
+    
+    ret = response.EvaluationStatus.model_validate(evaluation_status_dict)
     ret.upload_file_exists = evaluation_status_detail.upload_dir is not None
     ret.report_exists = evaluation_status_detail.report_path is not None
 
