@@ -1135,7 +1135,7 @@ async def read_submission_summary(
     return res
 
 
-@router.get("/result/batch/id/{batch_id}", response_model=response.BatchSubmission)
+@router.get("/result/batch/id/{batch_id}", response_model=response.BatchSubmissionDetailItem)
 async def read_batch_submission_summary(
     batch_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -1143,7 +1143,7 @@ async def read_batch_submission_summary(
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["batch"]),
     ],
-) -> response.BatchSubmission:
+) -> response.BatchSubmissionDetailItem:
     """
     特定のバッチ採点のジャッジ結果を取得する
     
@@ -1193,14 +1193,43 @@ async def read_batch_submission_summary(
             evaluation_status.result = aggregation_result
             
             assignments.update_evaluation_status(db, evaluation_status)
+    users_map = {user.user_id: user.username for user in users.get_users(db=db, user_id=None, roles=None)}
+    lecture_map = {
+        lecture.id: response.Lecture.model_validate(lecture)
+        for lecture in assignments.get_lecture_list(db=db)
+    }
+    detail_item_data = response.BatchSubmissionDetailItem(
+        id=batch_submission_detail.id,
+        ts=batch_submission_detail.ts,
+        user_id=batch_submission_detail.user_id,
+        username=users_map.get(batch_submission_detail.user_id),
+        lecture_id=batch_submission_detail.lecture_id,
+        lecture=lecture_map.get(batch_submission_detail.lecture_id),
+        message=batch_submission_detail.message,
+        complete_judge=batch_submission_detail.complete_judge,
+        total_judge=batch_submission_detail.total_judge,
+        evaluation_statuses=[
+            response.EvaluationStatus(
+                id=es.id,
+                batch_id=es.batch_id,
+                user_id=es.user_id,
+                username=users_map.get(es.user_id),
+                lecture_id=batch_submission_detail.lecture_id,
+                lecture=lecture_map.get(batch_submission_detail.lecture_id),
+                status=es.status,
+                result=es.result,
+                upload_file_exists=es.upload_dir is not None,
+                report_exists=es.report_path is not None,
+                submit_date=es.submit_date,
+                submissions=es.submissions
+            )
+            for es in batch_submission_detail.evaluation_statuses
+        ]
+    )
+    
+    detail_item = response.BatchSubmissionDetailItem.model_validate(detail_item_data)
 
-    ret = response.BatchSubmission.model_validate(batch_submission_detail)
-    
-    for dest, src in zip(ret.evaluation_statuses, batch_submission_detail.evaluation_statuses):
-        dest.upload_file_exists = src.upload_dir is not None
-        dest.report_exists = src.report_path is not None
-    
-    return ret
+    return detail_item
 
 
 @router.get("/result/batch/id/{batch_id}/user/{user_id}", response_model=response.EvaluationStatus)
