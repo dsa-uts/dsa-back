@@ -27,7 +27,8 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="DSA Backend Server",
         version="0.1.0",
-        lifespan=lifespan)
+        lifespan=lifespan,
+        docs_url=None)
 
     # カスタムHTTPExceptionハンドラー
     @app.exception_handler(HTTPException)
