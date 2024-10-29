@@ -16,6 +16,8 @@ ADMIN_PASSWORD = os.getenv("INIT_ADMIN_PASSWORD")
 ADMIN_START_DATE = os.getenv("INIT_ADMIN_START_DATE")
 ADMIN_END_DATE = os.getenv("INIT_ADMIN_END_DATE")
 
+ENV = os.getenv("ENV")
+
 # --- パス関連 ---
 UPLOAD_DIR = os.getenv("UPLOAD_DIR_PATH", "/upload")
 
