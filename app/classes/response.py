@@ -165,11 +165,45 @@ class BatchSubmissionItemsForListView(BaseModel):
 
     model_config = {"from_attributes": True}
 
+# detailのページのサマリー的なもの．
+class BatchSubmissionDetailItem(BaseModel):
+    id: int
+    ts: datetime
+    user_id: str
+    username: str
+    lecture_id: int
+    lecture: Lecture
+    message: str | None
+    status: Literal["queued", "running", "done"] = Field(default="queued")
+    complete_judge: int | None
+    total_judge: int | None
+    
+    evaluation_statuses: list["EvaluationStatus"] = Field(default_factory=list)
+    
+    model_config = {"from_attributes": True}
+    
+    @field_serializer("ts")
+    def serialize_ts(self, ts: datetime, _info):
+        return ts.isoformat()
+    
+    @model_validator(mode='after')
+    def set_status(self):
+        if self.complete_judge is None or self.total_judge is None:
+            self.status = "queued"
+        elif self.complete_judge == self.total_judge:
+            self.status = "done"
+        else:
+            self.status = "running"
+        return self
 
+# バッチ採点の各ユーザの採点結果
 class EvaluationStatus(BaseModel):
     id: int = Field(default=0)
     batch_id: int
     user_id: str
+    username: str
+    lecture_id: int
+    lecture: Lecture
     status: StudentSubmissionStatus
     result: SubmissionSummaryStatus | None = Field(default=None)
     # BatchSubmissionSummaryテーブルのupload_dirがNULLじゃない場合はTrue
@@ -197,7 +231,7 @@ class EvaluationStatus(BaseModel):
     def serialize_submit_date(self, submit_date: datetime | None, _info):
         return submit_date.isoformat() if submit_date is not None else None
 
-
+# 各学生の各小課題の結果
 class Submission(BaseModel):
     id: int = Field(default=0)
     ts: datetime = Field(default=datetime(year=1998, month=6, day=6))
