@@ -76,10 +76,11 @@ def unfold_zip(uploaded_zip_file: Path, dest_dir: Path) -> str | None:
     """
     uploaded_zip_fileが以下の条件を満たすかチェックしながら、dest_dirにファイルを配置していく。
     * 拡張子がzipであること
-    * 展開前のファイル名が"class{lecture_id}.zip"であること
-    * 展開した後、以下のパターンしか想定しない
-        * フォルダが1個しか存在しないパターン
-        * zipファイルは存在せず、かつフォルダが存在しないパターン
+    * 展開後、以下のパターンしか想定しない
+        * フォルダが存在しないパターン(zipファイルに直接ファイルを配置していたケース)
+        * フォルダが一個しかないパターン(zipファイルにフォルダごと配置していたケース)
+        * フォルダが2個以上あるが、zipファイルの名前と同じ名前のフォルダが存在するパターン
+          (__MACOSXなどのメタ情報フォルダも含めてzipファイルに配置していたケース)
         
     何も問題が無ければNoneを返し、問題があればエラーメッセージを返す。
     """
@@ -113,15 +114,19 @@ def unfold_zip(uploaded_zip_file: Path, dest_dir: Path) -> str | None:
         if len(list(folded_dir.iterdir())) > 0:
             return "フォルダの展開に失敗しました。"
         shutil.rmtree(folded_dir)
-    
-    # それでもtemp_dir内にフォルダがある場合、またはzipファイルが存在する場合はエラー
-    folder_num = len([f for f in dest_dir.iterdir() if f.is_dir()])
-    if folder_num > 1:
-        return "圧縮後のディレクトリが3階層以上あります。"
-    
-    zip_num = len([f for f in dest_dir.iterdir() if f.is_file() and f.suffix == ".zip"])
-    if zip_num > 0:
-        return "zipの中にzipを含めないでください。"
+    elif (
+        len(list(dest_dir.iterdir())) > 1
+        and (dest_dir / uploaded_zip_file.stem).exists()
+        and (dest_dir / uploaded_zip_file.stem).is_dir()
+    ):
+        # フォルダが2個以上あるが、zipファイルの名前と同じ名前のフォルダが存在する場合
+        # zipファイルの名前と同じフォルダをdest_dirに移動
+        try:
+            for file in (dest_dir / uploaded_zip_file.stem).iterdir():
+                shutil.move(file, dest_dir)
+        except Exception as e:
+            return f"zipファイルの名前と同じ名前のフォルダがあるため、展開時にエラーが発生しました。"
+        shutil.rmtree((dest_dir / uploaded_zip_file.stem))
 
     return None
 
@@ -599,10 +604,21 @@ async def batch_judge(
         with zipfile.ZipFile(uploaded_zip_file.file, "r") as zip_ref:
             zip_ref.extractall(workspace_dir_path)
 
-        # 展開先のディレクトリで、フォルダが一個しかない
         current_dir = workspace_dir_path
-        if len(list(current_dir.iterdir())) == 1 and list(current_dir.iterdir())[0].is_dir():
+        if (
+            len(list(current_dir.iterdir())) == 1
+            and list(current_dir.iterdir())[0].is_dir()
+        ):
+            # 展開先のディレクトリで、フォルダが一個しかない場合
             current_dir = list(current_dir.iterdir())[0]
+        elif (
+            len(list(current_dir.iterdir())) > 1
+            and (current_dir / Path(uploaded_zip_file.filename).stem).exists()
+            and (current_dir / Path(uploaded_zip_file.filename).stem).is_dir()
+        ):
+            # 展開後に、__MACOSXなどのメタフォルダとZIPファイル名のフォルダができている場合
+            # ZIPファイル名のフォルダをcurrent_dirとする
+            current_dir = current_dir / Path(uploaded_zip_file.filename).stem
 
         '''
         この時点でのcurrent_dirの構成
