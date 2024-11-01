@@ -24,6 +24,7 @@ from datetime import datetime
 from app import constants as constant
 from pathlib import Path
 from typing import Optional
+import pytz
 logging.basicConfig(level=logging.DEBUG)
 
 router = APIRouter()
@@ -159,8 +160,8 @@ async def register_multiple_users(
     # ファイル名は、現在時刻をフォーマットしたものとする
     user_file_dir = Path(constant.UPLOAD_DIR) / "users"
     user_file_dir.mkdir(parents=True, exist_ok=True)
-    file_path = user_file_dir / f"{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}.csv"
-    df.to_csv(file_path, index=False, encoding="utf-8")
+    file_path = user_file_dir / f"{datetime.now(tz=pytz.timezone('Asia/Tokyo')).strftime('%Y-%m-%d-%H-%M-%S')}.xlsx"
+    df.to_excel(file_path, index=False)
 
     # Return the updated file to the client
     return FileResponse(file_path, filename=file_path.name)
