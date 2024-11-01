@@ -127,6 +127,11 @@ def unfold_zip(uploaded_zip_file: Path, dest_dir: Path) -> str | None:
         except Exception as e:
             return f"zipファイルの名前と同じ名前のフォルダがあるため、展開時にエラーが発生しました。"
         shutil.rmtree((dest_dir / uploaded_zip_file.stem))
+    
+    # 'makefile', 'GNUMakefile'を見つけたら、'Makefile'にリネームする
+    for file in dest_dir.iterdir():
+        if file.is_file() and file.name in ['makefile', 'GNUMakefile']:
+            file.rename(dest_dir / 'Makefile')
 
     return None
 
