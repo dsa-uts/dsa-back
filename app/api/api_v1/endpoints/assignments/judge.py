@@ -1,5 +1,5 @@
 from app.crud.db import assignments
-from app.api.api_v1.endpoints.assignments import lecture_is_public, access_sanitize
+from .util import lecture_is_public, access_sanitize
 from fastapi import APIRouter, Depends, Query, Security, HTTPException, status, UploadFile, File
 from app.classes import schemas, response
 import logging
@@ -12,7 +12,7 @@ from app import constants as constant
 import shutil
 import tempfile
 from datetime import datetime
-from . import unfold_zip
+from .util import unfold_zip
 
 
 logging.basicConfig(level=logging.DEBUG)

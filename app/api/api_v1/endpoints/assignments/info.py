@@ -1,5 +1,5 @@
 from app.crud.db import assignments
-from app.api.api_v1.endpoints.assignments import lecture_is_public, access_sanitize
+from .util import lecture_is_public, access_sanitize
 from fastapi import APIRouter, Depends, Query, Security, HTTPException, status
 from app.classes import schemas, response
 import logging
