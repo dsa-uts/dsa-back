@@ -1,5 +1,6 @@
 from app.crud.db import assignments
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, Query, Security, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, Query, Security, File
+from fastapi.responses import FileResponse
 from app.api.api_v1.endpoints import authenticate_util
 import logging
 from app.classes import schemas, response
@@ -256,3 +257,216 @@ async def add_problem(
 
         return response.Message(message="課題データを登録しました")
 
+
+@router.post("/update")
+async def update_problem(
+    lecture_id: Annotated[int, Query(description="編集対象の小課題のlecture_id")],
+    upload_file: Annotated[UploadFile, File(description="課題データのソースコード、テストケース、設定JSONファイルを含むzipファイル")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[schemas.UserRecord, Security(authenticate_util.get_current_active_user, scopes=["batch"])]
+) -> response.Message:
+    """
+    課題データの更新API
+    """
+    
+    lecture = assignments.get_lecture(db, lecture_id)
+    if lecture is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="指定されたlecture_idの課題エントリが存在しません")
+    
+    # zipファイルを{RESOURCE_DIR}/temp/に配置する
+    temporary_zip_path = Path(constant.RESOURCE_DIR) / "temp" / (upload_file.filename if upload_file.filename is not None else f"problem_data_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.zip")
+    temporary_zip_path.parent.mkdir(parents=True, exist_ok=True)
+    # zipファイルをtemporary_zip_pathに配置する
+    with open(temporary_zip_path, "wb") as f:
+        shutil.copyfileobj(upload_file.file, f)
+
+    # zipファイルをtemporaryディレクトリに展開する
+    with tempfile.TemporaryDirectory() as temp_dir:
+        with zipfile.ZipFile(temporary_zip_path, "r") as zip_ref:
+            zip_ref.extractall(temp_dir)
+        
+        current_dir = Path(temp_dir)
+        
+        if len(list(current_dir.iterdir())) == 1 and list(current_dir.iterdir())[0].is_dir():
+            # トップにフォルダ一つのみなら、そのフォルダ以下をカレントディレクトリとする
+            current_dir = list(current_dir.iterdir())[0]
+        elif len(list(current_dir.iterdir())) > 1 and (current_dir / Path(upload_file.filename).stem).exists():
+            # トップにフォルダ一つのみでなく、かつ、ファイル名がフォルダ名と一致するファイルが存在する場合、そのファイルをカレントディレクトリとする
+            # 例: __MACOSXなどのメタ情報フォルダが含まれるケース
+            current_dir = current_dir / Path(upload_file.filename).stem
+        
+        # *.jsonという名のファイルが一つだけ、カレントディレクトリのトップに存在するか調べる
+        json_files = [f for f in current_dir.iterdir() if f.is_file() and f.suffix == ".json"]
+        if len(json_files) != 1:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSONファイルが複数あり、どれが設定ファイルかわかりません")
+        
+        init_json_path = json_files[0]
+        
+        # ファイルの内容を読み込む
+        with open(init_json_path, "r") as f:
+            problem_data = json.load(f)
+        
+        # 設定JSONファイルのスキーマファイルを読み込む
+        with open(Path(constant.RESOURCE_DIR) / "schema.json", "r") as f:
+            schema = json.load(f)
+        
+        # schema validationを行う
+        try:
+            jsonschema.validate(problem_data, schema)
+        except jsonschema_exceptions.ValidationError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        
+        # データをProblemDataに変換する
+        try:
+            problem_data = ProblemData.model_validate(problem_data)
+        except ValidationError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        
+        # Problemテーブルに該当する小課題があるなら、それを削除する
+        if assignments.get_problem(db, lecture_id, problem_data.sub_id) is not None:
+            assignments.delete_problem(db, lecture_id, problem_data.sub_id)
+        
+        # 小課題データを登録する
+        error_message = ""
+        # problem_data.md_fileのパスにファイルがあるか確かめる
+        if not (current_dir / problem_data.md_file).exists():
+            error_message += f"md_fileのパス({problem_data.md_file})にファイルがありません\n"
+        
+        # problem_data.buildとproblem_data.judgeのstdin, stdout, stderrのパスにファイルがあるか確かめる
+        for test_case in problem_data.build + problem_data.judge:
+            if test_case.stdin is not None and not (current_dir / test_case.stdin).exists():
+                error_message += f"testcase_[{test_case.title}]のstdinのパス({test_case.stdin})にファイルがありません\n"
+            if test_case.stdout is not None and not (current_dir / test_case.stdout).exists():
+                error_message += f"testcase_[{test_case.title}]のstdoutのパス({test_case.stdout})にファイルがありません\n"
+            if test_case.stderr is not None and not (current_dir / test_case.stderr).exists():
+                error_message += f"testcase_[{test_case.title}]のstderrのパス({test_case.stderr})にファイルがありません\n"
+        
+        if error_message != "":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_message)
+        
+        archive_dir = Path(constant.RESOURCE_DIR) / f"lec-{lecture.id}" / f"problem-{problem_data.sub_id}" / f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+        # current_dirの中身のファイル全てを、RESOURCE_DIR/lec-{lecture_id}/problem-{problem_data.sub_id}/{YYYY-MM-DD_HH-MM-SS}/extracted/にコピーする
+        target_dir = archive_dir / "extracted"
+        shutil.copytree(current_dir, target_dir)
+        
+        # 小課題データを登録する
+        problem_record = schemas.Problem(
+            lecture_id=lecture.id,
+            assignment_id=problem_data.sub_id,
+            title=problem_data.title,
+            description_path=str((target_dir / problem_data.md_file).relative_to(constant.RESOURCE_DIR)),
+            timeMS=problem_data.time_ms,
+            memoryMB=problem_data.memory_mb,
+            executables=[],
+            arranged_files=[
+                schemas.ArrangedFiles(
+                    lecture_id=lecture.id,
+                    assignment_id=problem_data.sub_id,
+                    eval=False,
+                    path=str((target_dir / test_file).relative_to(constant.RESOURCE_DIR))
+                )
+                for test_file in problem_data.test_files
+            ],
+            required_files=[
+                schemas.RequiredFiles(
+                    lecture_id=lecture.id,
+                    assignment_id=problem_data.sub_id,
+                    name=str(required_file)
+                )
+                for required_file in problem_data.required_files
+            ],
+            test_cases=
+                [
+                    schemas.TestCases(
+                        lecture_id=lecture.id,
+                        assignment_id=problem_data.sub_id,
+                        eval=test_case.eval_only,
+                        type=schemas.EvaluationType.Built,
+                        score=0,
+                        title=test_case.title,
+                        description=test_case.description,
+                        message_on_fail=test_case.message_on_fail,
+                        command=test_case.command,
+                        args=None,
+                        stdin_path=str((target_dir / test_case.stdin).relative_to(constant.RESOURCE_DIR)) if test_case.stdin is not None else None,
+                        stdout_path=str((target_dir / test_case.stdout).relative_to(constant.RESOURCE_DIR)) if test_case.stdout is not None else None,
+                        stderr_path=str((target_dir / test_case.stderr).relative_to(constant.RESOURCE_DIR)) if test_case.stderr is not None else None,
+                        exit_code=test_case.exit
+                    )
+                    for test_case in problem_data.build
+                ] + [
+                    schemas.TestCases(
+                        lecture_id=lecture.id,
+                        assignment_id=problem_data.sub_id,
+                        eval=test_case.eval_only,
+                        type=schemas.EvaluationType.Judge,
+                        score=0,
+                        title=test_case.title,
+                        description=test_case.description,
+                        message_on_fail=test_case.message_on_fail,
+                        command=test_case.command,
+                        args=None,
+                        stdin_path=str((target_dir / test_case.stdin).relative_to(constant.RESOURCE_DIR)) if test_case.stdin is not None else None,
+                        stdout_path=str((target_dir / test_case.stdout).relative_to(constant.RESOURCE_DIR)) if test_case.stdout is not None else None,
+                        stderr_path=str((target_dir / test_case.stderr).relative_to(constant.RESOURCE_DIR)) if test_case.stderr is not None else None,
+                        exit_code=test_case.exit
+                    )
+                    for test_case in problem_data.judge
+                ]
+        )
+        
+        assignments.register_problem(db, problem_record)
+        
+        # ZIPファイルをarchive_dirにコピーする
+        shutil.copyfile(temporary_zip_path, archive_dir / temporary_zip_path.name)
+        
+        # 登録情報をProblemZipPathに登録する
+        assignments.register_problem_zip_path(db, schemas.ProblemZipPath(
+            lecture_id=lecture.id,
+            assignment_id=problem_data.sub_id,
+            zip_path=str((archive_dir / temporary_zip_path.name).relative_to(constant.RESOURCE_DIR))
+        ))
+        
+        # 一時ファイルを削除する
+        temporary_zip_path.unlink()
+
+        return response.Message(message="課題データを更新しました")
+
+
+@router.get("/download")
+async def download_problem(
+    lecture_id: Annotated[int, Query(description="ダウンロード対象の小課題のlecture_id")],
+    problem_id: Annotated[int, Query(description="ダウンロード対象の小課題のproblem_id")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[schemas.UserRecord, Security(authenticate_util.get_current_active_user, scopes=["batch"])]
+) -> FileResponse:
+    """
+    課題データのダウンロードAPI
+    """
+    
+    problem_zip_paths = assignments.get_problem_zip_paths(db, lecture_id, problem_id)
+    if len(problem_zip_paths) == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="指定された小課題に紐づくZIPファイルが存在しません")
+    
+    # 最もts(timestamp)が最新のZIPファイルのパスを取得する
+    latest_problem_zip_path = sorted(problem_zip_paths, key=lambda x: x.ts, reverse=True)[0]
+    
+    return FileResponse(Path(constant.RESOURCE_DIR) / latest_problem_zip_path.zip_path)
+
+@router.delete("/delete")
+async def delete_problem(
+    lecture_id: Annotated[int, Query(description="削除対象の小課題のlecture_id")],
+    problem_id: Annotated[int, Query(description="削除対象の小課題のproblem_id")],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[schemas.UserRecord, Security(authenticate_util.get_current_active_user, scopes=["batch"])]
+) -> response.Message:
+    """
+    課題データの削除API
+    """
+    
+    if assignments.get_problem(db, lecture_id, problem_id) is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="指定された小課題が存在しません")
+    
+    assignments.delete_problem(db, lecture_id, problem_id)
+    
+    return response.Message(message="課題データを削除しました")

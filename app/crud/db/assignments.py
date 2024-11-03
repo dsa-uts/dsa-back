@@ -122,6 +122,37 @@ def register_problem_zip_path(db: Session, problem_zip_path: schemas.ProblemZipP
     db.commit()
 
 
+def get_problem_zip_paths(db: Session, lecture_id: int, assignment_id: int) -> List[schemas.ProblemZipPath]:
+    """
+    特定の授業の特定の課題に紐づくZIPファイルのパスを取得する
+    """
+    return db.query(models.ProblemZipPath).filter(
+        models.ProblemZipPath.lecture_id == lecture_id,
+        models.ProblemZipPath.assignment_id == assignment_id
+    ).all()
+
+
+def delete_lecture(db: Session, lecture_id: int) -> None:
+    """
+    特定のlecture_idを持つLectureテーブルのレコードを削除する
+    および、それを親とするその他全てのテーブルのレコードを削除する
+    """
+    db.query(models.Lecture).filter(models.Lecture.id == lecture_id).delete()
+    db.commit()
+
+
+def delete_problem(db: Session, lecture_id: int, assignment_id: int) -> None:
+    """
+    特定のlecture_idとassignment_idを持つProblemテーブルのレコードを削除する
+    および、それを親とするその他全てのテーブルのレコードを削除する
+    """
+    db.query(models.Problem).filter(
+        models.Problem.lecture_id == lecture_id,
+        models.Problem.assignment_id == assignment_id
+    ).delete()
+    db.commit()
+
+
 def get_problem(
     db: Session, lecture_id: int, assignment_id: int, eval: bool = False, detail: bool = False
 ) -> schemas.Problem | None:
