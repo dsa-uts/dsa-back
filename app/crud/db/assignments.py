@@ -61,13 +61,62 @@ def get_lecture(db: Session, lecture_id: int) -> schemas.Lecture | None:
     ) if lecture is not None else None
 
 
+def add_or_update_lecture(db: Session, lecture: schemas.Lecture) -> None:
+    """
+    Lectureテーブルに無い場合、新規追加
+    Lectureテーブルにある場合、更新
+    """
+    lecture = models.Lecture(
+        **lecture.model_dump(exclude={"problems"})
+    )
+    db.merge(lecture)
+    db.commit()
+
+
+def register_problem(db: Session, problem: schemas.Problem) -> None:
+    """
+    Problemテーブルと、それらと子関係にあるテーブルに課題データを登録する
+    """
+    new_problem = models.Problem(
+        **problem.model_dump(exclude={"executables", "arranged_files", "required_files", "test_cases"}),
+        executables=[
+            executable.model_dump(exclude={"id"})
+            for executable in problem.executables
+        ],
+        arranged_files=[
+            arranged_file.model_dump(exclude={"id"})
+            for arranged_file in problem.arranged_files
+        ],
+        required_files=[
+            required_file.model_dump(exclude={"id"})
+            for required_file in problem.required_files
+        ],
+        test_cases=[
+            test_case.model_dump(exclude={"id"})
+            for test_case in problem.test_cases
+        ]
+    )
+    db.add(new_problem)
+    db.commit()
+
+
+def register_problem_zip_path(db: Session, problem_zip_path: schemas.ProblemZipPath) -> None:
+    """
+    ProblemZipPathテーブルに、課題のZIPファイルのパスを登録する
+    """
+    new_problem_zip_path = models.ProblemZipPath(**problem_zip_path.model_dump(exclude={"id", "ts"}))
+    db.merge(new_problem_zip_path)
+    db.commit()
+
+
 def get_problem(
-    db: Session, lecture_id: int, assignment_id: int, eval: bool, detail: bool = False
+    db: Session, lecture_id: int, assignment_id: int, eval: bool = False, detail: bool = False
 ) -> schemas.Problem | None:
     """
     特定の授業の特定の課題のエントリを取得する関数
     
     detailがTrueの場合、ネスト情報も全て読み込む
+    evalがTrueの場合、採点用のリソースも全て含める
     """
     problem = (
         db.query(models.Problem)

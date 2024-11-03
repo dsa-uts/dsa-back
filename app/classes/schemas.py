@@ -119,8 +119,20 @@ class Problem(BaseModel):
     }
 
 
+class ProblemZipPath(BaseModel):
+    id: int = Field(default=0)
+    ts: datetime = Field(default=datetime(year=1998, month=6, day=6))
+    lecture_id: int
+    assignment_id: int
+    zip_path: str
+
+    model_config = {
+        "from_attributes": True
+    }
+
+
 class Executables(BaseModel):
-    id: int
+    id: int = Field(default=0)
     lecture_id: int
     assignment_id: int
     eval: bool
@@ -132,7 +144,7 @@ class Executables(BaseModel):
 
 
 class ArrangedFiles(BaseModel):
-    id: int
+    id: int = Field(default=0)
     lecture_id: int
     assignment_id: int
     eval: bool
@@ -144,7 +156,7 @@ class ArrangedFiles(BaseModel):
 
 
 class RequiredFiles(BaseModel):
-    id: int
+    id: int = Field(default=0)
     lecture_id: int
     assignment_id: int
     name: str
@@ -160,7 +172,7 @@ class EvaluationType(Enum):
 
 
 class TestCases(BaseModel):
-    id: int
+    id: int = Field(default=0)
     lecture_id: int
     assignment_id: int
     eval: bool
