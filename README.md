@@ -1,8 +1,28 @@
 # 準備
 1. パッケージのインストール  
-   以下のコマンドで，必要なパッケージ(requirements.txtに書かれたもの)が一括でインストールされる．
-   ```bash
-   pip3 install -r requirements.txt
+   注意: このセクションは，ローカル環境でインテリセンスが利くようにするための手順について
+   記述している．実際にアプリを動かす際には，venvを作成しなくても良い．
+
+   venvを作成する．
+   ```
+   .../dsa_back$ python3 -m venv .venv
+   ```
+
+   venvをactivateする．
+   ```
+   .../dsa_back$ . .venv/bin/activate
+   ```
+
+   pipでパッケージをインストールする．すると，requirements.txtに書かれたパッケージが.venvに
+   インストールされる．
+   ```
+   .../dsa_back$ pip install -r requirements.txt
+   ```
+
+   現在適用しているvenvを解除したい場合は，以下のコマンドを実行する．
+   どのディレクトリ上でも実行できる．
+   ```
+   $ deactivate
    ```
 
 2. 環境変数の設定  
