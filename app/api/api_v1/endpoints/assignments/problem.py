@@ -1,5 +1,5 @@
 from app.crud.db import assignments
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, Query, Security, File, Body
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, Query, Security, File, Form
 from app.api.api_v1.endpoints import authenticate_util
 import logging
 from app.classes import schemas, response
@@ -65,34 +65,43 @@ router = APIRouter()
 
 @router.post("/add")
 async def add_problem(
-    lecture: Annotated[schemas.Lecture, Body(description="編集対象の課題データ, 更新したい場合はタイトル、公開期間を変更する")],
-    upload_file: Annotated[Optional[UploadFile], File(description="課題データのソースコード、テストケース、設定JSONファイルを含むzipファイル")],
-    is_update: Annotated[bool, Query(description="trueの場合はlectureの内容を元にLectureテーブルを更新する")],
+    lecture_id: Annotated[int, Query(description="編集対象の課題データの講義ID")],
+    lecture_title: Annotated[str, Query(description="編集対象の課題データの講義タイトル")],
+    lecture_start_date: Annotated[datetime, Query(description="編集対象の課題データの公開開始日時")],
+    lecture_end_date: Annotated[datetime, Query(description="編集対象の課題データの公開終了日時")],
+    upload_file: Annotated[UploadFile, File(description="課題データのソースコード、テストケース、設定JSONファイルを含むzipファイル。is_updateがfalseの場合は見られないので、空のファイルを指定すること")],
+    is_update: Annotated[bool, Query(description="trueの場合は、upload_fileの内容を元にProblemテーブルに小課題データを登録する")],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[schemas.UserRecord, Security(authenticate_util.get_current_active_user, scopes=["batch"])]
 ) -> response.Message:
     """
     課題データの追加API
     
-    is_updateがtrueの場合は、lectureの内容を元にLectureテーブルを更新する、無い場合は新規追加する。
-    fileが指定されている場合は、その内容を元にProblemテーブル、TestCaseテーブル、ArrangedFilesテーブル、RequiredFilesテーブルに
-    小課題のデータを追加する。
+    is_updateがtrueの場合は、upload_fileの内容を元にProblemテーブルに小課題データを登録する。
+    小課題データを登録したくない場合は、is_updateをfalseにし、upload_fileには空のファイルを指定する。。
     すでに小課題が存在する場合は、例外を返す。
     """
-
-    if is_update:
-        # lectureの内容を元にLectureテーブルを更新する
-        # 新規であれば追加、既存の場合は更新
-        try:
-            assignments.add_or_update_lecture(db, lecture)
-        except Exception as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     
-    if upload_file is None:
+    lecture = schemas.Lecture(
+        id=lecture_id,
+        title=lecture_title,
+        start_date=lecture_start_date,
+        end_date=lecture_end_date
+    )
+
+    # lectureの内容を更新する
+    try:
+        assignments.add_or_update_lecture(db, lecture)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    
+    if is_update is False:
         return response.Message(message="lectureの内容のみ更新されました")
     
     # zipファイルを{RESOURCE_DIR}/temp/に配置する
     temporary_zip_path = Path(constant.RESOURCE_DIR) / "temp" / (upload_file.filename if upload_file.filename is not None else f"problem_data_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.zip")
+    temporary_zip_path.parent.mkdir(parents=True, exist_ok=True)
+    # zipファイルをtemporary_zip_pathに配置する
     with open(temporary_zip_path, "wb") as f:
         shutil.copyfileobj(upload_file.file, f)
     
@@ -190,7 +199,7 @@ async def add_problem(
                 )
                 for required_file in problem_data.required_files
             ],
-            test_cases=[
+            test_cases=
                 [
                     schemas.TestCases(
                         lecture_id=lecture.id,
@@ -228,7 +237,6 @@ async def add_problem(
                     )
                     for test_case in problem_data.judge
                 ]
-            ]
         )
         
         assignments.register_problem(db, problem_record)
@@ -243,5 +251,8 @@ async def add_problem(
             zip_path=str((archive_dir / temporary_zip_path.name).relative_to(constant.RESOURCE_DIR))
         ))
         
+        # 一時ファイルを削除する
+        temporary_zip_path.unlink()
+
         return response.Message(message="課題データを登録しました")
 

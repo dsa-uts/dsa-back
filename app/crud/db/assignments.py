@@ -79,23 +79,36 @@ def register_problem(db: Session, problem: schemas.Problem) -> None:
     """
     new_problem = models.Problem(
         **problem.model_dump(exclude={"executables", "arranged_files", "required_files", "test_cases"}),
-        executables=[
-            executable.model_dump(exclude={"id"})
-            for executable in problem.executables
-        ],
-        arranged_files=[
-            arranged_file.model_dump(exclude={"id"})
-            for arranged_file in problem.arranged_files
-        ],
-        required_files=[
-            required_file.model_dump(exclude={"id"})
-            for required_file in problem.required_files
-        ],
-        test_cases=[
-            test_case.model_dump(exclude={"id"})
-            for test_case in problem.test_cases
-        ]
     )
+    
+    for executable in problem.executables:
+        new_executable = models.Executables(
+            **executable.model_dump(exclude={"id"}),
+            problem=new_problem
+        )
+        db.add(new_executable)
+    
+    for arranged_file in problem.arranged_files:
+        new_arranged_file = models.ArrangedFiles(
+            **arranged_file.model_dump(exclude={"id"}),
+            problem=new_problem
+        )
+        db.add(new_arranged_file)
+
+    for required_file in problem.required_files:
+        new_required_file = models.RequiredFiles(
+            **required_file.model_dump(exclude={"id"}),
+            problem=new_problem
+        )
+        db.add(new_required_file)
+    
+    for test_case in problem.test_cases:
+        new_test_case = models.TestCases(
+            **test_case.model_dump(exclude={"id"}),
+            problem=new_problem
+        )
+        db.add(new_test_case)
+    
     db.add(new_problem)
     db.commit()
 
