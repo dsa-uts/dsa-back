@@ -61,13 +61,106 @@ def get_lecture(db: Session, lecture_id: int) -> schemas.Lecture | None:
     ) if lecture is not None else None
 
 
+def add_or_update_lecture(db: Session, lecture: schemas.Lecture) -> None:
+    """
+    Lectureテーブルに無い場合、新規追加
+    Lectureテーブルにある場合、更新
+    """
+    lecture = models.Lecture(
+        **lecture.model_dump(exclude={"problems"})
+    )
+    db.merge(lecture)
+    db.commit()
+
+
+def register_problem(db: Session, problem: schemas.Problem) -> None:
+    """
+    Problemテーブルと、それらと子関係にあるテーブルに課題データを登録する
+    """
+    new_problem = models.Problem(
+        **problem.model_dump(exclude={"executables", "arranged_files", "required_files", "test_cases"}),
+    )
+    
+    for executable in problem.executables:
+        new_executable = models.Executables(
+            **executable.model_dump(exclude={"id"}),
+            problem=new_problem
+        )
+        db.add(new_executable)
+    
+    for arranged_file in problem.arranged_files:
+        new_arranged_file = models.ArrangedFiles(
+            **arranged_file.model_dump(exclude={"id"}),
+            problem=new_problem
+        )
+        db.add(new_arranged_file)
+
+    for required_file in problem.required_files:
+        new_required_file = models.RequiredFiles(
+            **required_file.model_dump(exclude={"id"}),
+            problem=new_problem
+        )
+        db.add(new_required_file)
+    
+    for test_case in problem.test_cases:
+        new_test_case = models.TestCases(
+            **test_case.model_dump(exclude={"id"}),
+            problem=new_problem
+        )
+        db.add(new_test_case)
+    
+    db.add(new_problem)
+    db.commit()
+
+
+def register_problem_zip_path(db: Session, problem_zip_path: schemas.ProblemZipPath) -> None:
+    """
+    ProblemZipPathテーブルに、課題のZIPファイルのパスを登録する
+    """
+    new_problem_zip_path = models.ProblemZipPath(**problem_zip_path.model_dump(exclude={"id", "ts"}))
+    db.merge(new_problem_zip_path)
+    db.commit()
+
+
+def get_problem_zip_paths(db: Session, lecture_id: int, assignment_id: int) -> List[schemas.ProblemZipPath]:
+    """
+    特定の授業の特定の課題に紐づくZIPファイルのパスを取得する
+    """
+    return db.query(models.ProblemZipPath).filter(
+        models.ProblemZipPath.lecture_id == lecture_id,
+        models.ProblemZipPath.assignment_id == assignment_id
+    ).all()
+
+
+def delete_lecture(db: Session, lecture_id: int) -> None:
+    """
+    特定のlecture_idを持つLectureテーブルのレコードを削除する
+    および、それを親とするその他全てのテーブルのレコードを削除する
+    """
+    db.query(models.Lecture).filter(models.Lecture.id == lecture_id).delete()
+    db.commit()
+
+
+def delete_problem(db: Session, lecture_id: int, assignment_id: int) -> None:
+    """
+    特定のlecture_idとassignment_idを持つProblemテーブルのレコードを削除する
+    および、それを親とするその他全てのテーブルのレコードを削除する
+    """
+    db.query(models.Problem).filter(
+        models.Problem.lecture_id == lecture_id,
+        models.Problem.assignment_id == assignment_id
+    ).delete()
+    db.commit()
+
+
 def get_problem(
-    db: Session, lecture_id: int, assignment_id: int, eval: bool, detail: bool = False
+    db: Session, lecture_id: int, assignment_id: int, eval: bool = False, detail: bool = False
 ) -> schemas.Problem | None:
     """
     特定の授業の特定の課題のエントリを取得する関数
     
     detailがTrueの場合、ネスト情報も全て読み込む
+    evalがTrueの場合、採点用のリソースも全て含める
     """
     problem = (
         db.query(models.Problem)

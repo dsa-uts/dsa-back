@@ -64,6 +64,15 @@ class Problem(Base):
                                                         ))
 
 
+class ProblemZipPath(Base):
+    __tablename__ = "ProblemZipPath"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, server_default=text("CURRENT_TIMESTAMP"))
+    lecture_id: Mapped[int] = mapped_column(Integer, ForeignKey("Problem.lecture_id"), nullable=False)
+    assignment_id: Mapped[int] = mapped_column(Integer, ForeignKey("Problem.assignment_id"), nullable=False)
+    zip_path: Mapped[str] = mapped_column(String(255), nullable=False)
+
+
 class Executables(Base):
     __tablename__ = "Executables"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

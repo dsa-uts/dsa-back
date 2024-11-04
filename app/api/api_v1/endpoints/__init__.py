@@ -6,7 +6,7 @@ from . import users
 ################### /api/v1/... 以下のエンドポイントの定義 ###################
 api_router = APIRouter()
 api_router.include_router(
-    assignments.router, prefix="/assignments", tags=["assignments"]
+    assignments.router, prefix="/assignments"
 )
 
 api_router.include_router(authorize.router, prefix="/authorize", tags=["authorize"])
