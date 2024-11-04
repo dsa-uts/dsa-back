@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 router = APIRouter()
 
-@router.get("/delete")
+@router.delete("/delete")
 async def delete_lecture(
     lecture_id: Annotated[int, Query(description="削除対象の授業ID")],
     db: Annotated[Session, Depends(get_db)],
