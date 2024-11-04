@@ -19,7 +19,7 @@ router = APIRouter()
 /api/v1/assignments/info/...以下のエンドポイントの定義
 """
 
-@router.get("/", response_model=List[response.Lecture])
+@router.get("", response_model=List[response.Lecture])
 async def read_lectures(
     all: Annotated[bool, Query(description="公開期間外含めた全ての授業エントリを取得する場合はTrue、そうでない場合はFalse")],  # 全ての授業エントリを取得するかどうか
     db: Annotated[Session, Depends(get_db)],
