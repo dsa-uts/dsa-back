@@ -64,7 +64,7 @@ router = APIRouter()
 /api/v1/assignments/problem/...以下のエンドポイントの定義
 """
 
-@router.post("/add")
+@router.post("/add", response_model=response.Message)
 async def add_problem(
     lecture_id: Annotated[int, Query(description="編集対象の課題データの講義ID")],
     lecture_title: Annotated[str, Query(description="編集対象の課題データの講義タイトル")],
@@ -258,7 +258,7 @@ async def add_problem(
         return response.Message(message="課題データを登録しました")
 
 
-@router.post("/update")
+@router.post("/update", response_model=response.Message)
 async def update_problem(
     lecture_id: Annotated[int, Query(description="編集対象の小課題のlecture_id")],
     upload_file: Annotated[UploadFile, File(description="課題データのソースコード、テストケース、設定JSONファイルを含むzipファイル")],
@@ -433,7 +433,7 @@ async def update_problem(
         return response.Message(message="課題データを更新しました")
 
 
-@router.get("/download")
+@router.get("/download", response_class=FileResponse)
 async def download_problem(
     lecture_id: Annotated[int, Query(description="ダウンロード対象の小課題のlecture_id")],
     problem_id: Annotated[int, Query(description="ダウンロード対象の小課題のproblem_id")],
@@ -451,9 +451,9 @@ async def download_problem(
     # 最もts(timestamp)が最新のZIPファイルのパスを取得する
     latest_problem_zip_path = sorted(problem_zip_paths, key=lambda x: x.ts, reverse=True)[0]
     
-    return FileResponse(Path(constant.RESOURCE_DIR) / latest_problem_zip_path.zip_path)
+    return FileResponse(Path(constant.RESOURCE_DIR) / latest_problem_zip_path.zip_path, filename=Path(latest_problem_zip_path.zip_path).name, media_type="application/zip")
 
-@router.delete("/delete")
+@router.delete("/delete", response_model=response.Message)
 async def delete_problem(
     lecture_id: Annotated[int, Query(description="削除対象の小課題のlecture_id")],
     problem_id: Annotated[int, Query(description="削除対象の小課題のproblem_id")],
