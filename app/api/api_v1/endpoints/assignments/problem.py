@@ -453,6 +453,18 @@ async def download_problem(
     
     return FileResponse(Path(constant.RESOURCE_DIR) / latest_problem_zip_path.zip_path, filename=Path(latest_problem_zip_path.zip_path).name, media_type="application/zip")
 
+
+@router.get("/template", response_class=FileResponse)
+async def download_template(
+    current_user: Annotated[schemas.UserRecord, Security(authenticate_util.get_current_active_user, scopes=["batch"])]
+) -> FileResponse:
+    """
+    課題データのテンプレートダウンロードAPI
+    """
+    template_path = Path(constant.RESOURCE_DIR) / "template.zip"
+    return FileResponse(template_path, filename=template_path.name, media_type="application/zip")
+
+
 @router.delete("/delete", response_model=response.Message)
 async def delete_problem(
     lecture_id: Annotated[int, Query(description="削除対象の小課題のlecture_id")],
