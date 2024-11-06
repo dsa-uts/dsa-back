@@ -316,27 +316,87 @@ def register_batch_submission(
 
 
 def get_submission_list(
-    db: Session, limit: int = 10, offset: int = 0, user_id: str | None = None, include_eval: bool = False
+    db: Session,
+    limit: int = 10,
+    offset: int = 0,
+    self_user_id: str | None = None,
+    lecture_id: int | None = None,
+    assignment_id: int | None = None,
+    ts_order: Literal["asc", "desc"] = "desc",
+    include_eval: bool = False,
+    include_private_problem: bool = False,
+    all_users: bool = False,
+    user: str | None = None,
+    result: Literal["AC", "WA", "TLE", "MLE", "RE", "CE", "OLE", "IE", "FN", "WJ"] | None = None
 ) -> List[schemas.Submission]:
     """
     全ての提出の進捗状況を取得する関数
     
     include_evalがTrueの場合、評価用の提出も含める
-    include_evalがFalseの場合、評価用の提出は含めない(eval == Falseでフィルタリング)
+    include_private_problemがTrueの場合、公開期間を過ぎた提出も含める
+    self_user_idはクエリを実行するユーザのID
+    lecture_idとassignment_idはSubmissionのlecture_idとassignment_idの条件
+    ts_orderは提出のtsのソート順 (asc: 古い順, desc: 新しい順)
+    all_usersがTrueの場合、自身だけでなく全てのユーザの提出を対象とする
+    userはuser_idまたはusernameの部分一致検索
+    resultは提出結果の条件、"WJ"(Wait Judge)は未評価の提出を表す
     """
-    # Submission
-    submission_list = (
-        db.query(models.Submission)
-        .filter(
-            or_(models.Submission.eval == False, include_eval == True),
-            or_(user_id is None, models.Submission.user_id == user_id)
-        )
-        .order_by(models.Submission.id.desc())
-        .limit(limit)
-        .offset(offset)
-        .all()
+    # SubmissionテーブルとLectureテーブルをjoinさせる。
+    submission_query = db.query(models.Submission, models.Lecture).join(
+        models.Lecture,
+        and_(
+            models.Submission.lecture_id == models.Lecture.id,
+        ),
     )
+
+    if include_eval is False:
+        submission_query = submission_query.filter(models.Submission.eval == False)
+    if include_private_problem is False:
+        # models.Lecture.start_dateとmodels.Lecture.end_dateを使って、公開期間内の提出のみを対象とする。
+        submission_query = submission_query.filter(
+            or_(
+                models.Lecture.start_date <= datetime.now(),
+                models.Lecture.end_date >= datetime.now(),
+            )
+        )
+    if all_users is False and self_user_id is not None:
+        submission_query = submission_query.filter(models.Submission.user_id == self_user_id)
+    if lecture_id is not None:
+        submission_query = submission_query.filter(models.Submission.lecture_id == lecture_id)
+    if assignment_id is not None:
+        submission_query = submission_query.filter(models.Submission.assignment_id == assignment_id)
+    if user is not None:
+        user_ids = db.query(models.Users.user_id).filter(
+            or_(
+                models.Users.user_id.ilike(f"%{user}%"),
+                models.Users.username.ilike(f"%{user}%")
+            )
+        ).all()
+        if user_ids:
+            submission_query = submission_query.filter(models.Submission.user_id.in_([id for (id,) in user_ids]))
+        else:
+            return []
+
+    if result is not None:
+        if result == "WJ":
+            submission_query = submission_query.filter(models.Submission.result == None)
+        else:
+            submission_query = submission_query.filter(models.Submission.result == result)
+
+    # ソート順を設定
+    if ts_order == "desc":
+        submission_query = submission_query.order_by(desc(models.Submission.ts))
+    else:
+        submission_query = submission_query.order_by(asc(models.Submission.ts))
+        
+    # limitとoffsetを設定
+    submission_query = submission_query.limit(limit).offset(offset)
+
+    # クエリを実行して、SubmissionレコードとLectureレコードのタプルのリストから、Submissionレコードのリストを取得
+    query_result = submission_query.all()
     
+    submission_list = [submission for (submission, _) in query_result]
+
     submission_record_list = [
         schemas.Submission.model_validate(
             {
@@ -347,7 +407,7 @@ def get_submission_list(
         )
         for submission in submission_list
     ]
-    
+
     return submission_record_list
 
 

@@ -28,17 +28,25 @@ def delete_temp_dir(temp_dir: tempfile.TemporaryDirectory):
 @router.get("/submissions/view", response_model=List[response.Submission])
 async def read_all_submission_status_of_me(
     page: int,
-    include_eval: Annotated[bool, Query(description="評価用の提出も含めるかどうか")],
     all: Annotated[bool, Query(description="全てのユーザの提出を含めるかどうか")],
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
         Security(authenticate_util.get_current_active_user, scopes=["me"]),
     ],
+    user: Optional[str] = Query(default=None, description="user_idまたはusernameの部分一致検索"),
+    ts_order: Literal["asc", "desc"] = Query(default="desc", description="提出のtsのソート順"),
+    lecture_id: Optional[int] = Query(default=None, description="講義IDを指定して取得する"),
+    assignment_id: Optional[int] = Query(default=None, description="課題IDを指定して取得する"),
+    result: Optional[Literal["AC", "WA", "TLE", "MLE", "RE", "CE", "OLE", "IE", "FN", "WJ"]] = Query(default=None, description="提出結果の条件, WJは未評価の提出を表す"),
 ) -> List[response.Submission]:
     """
     自身に紐づいた提出の進捗状況を取得する
     """
+    if current_user.role in [schemas.Role.admin, schemas.Role.manager]:
+        include_eval = True
+        include_private_problem = True
+    
     if page < 1:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -46,16 +54,9 @@ async def read_all_submission_status_of_me(
         )
 
     if current_user.role not in [
-        schemas.Role.student,
         schemas.Role.admin,
         schemas.Role.manager,
     ]:
-        if include_eval:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="管理者のみが評価用の提出の進捗状況を取得できます",
-            )
-
         if all:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -66,12 +67,23 @@ async def read_all_submission_status_of_me(
         db=db,
         limit=10,
         offset=(page - 1) * 10,
-        user_id=None if all else current_user.user_id,
+        self_user_id=None if all else current_user.user_id,
+        lecture_id=lecture_id,
+        assignment_id=assignment_id,
+        ts_order=ts_order,
         include_eval=include_eval,
+        include_private_problem=include_private_problem,
+        all_users=all,
+        user=user,
+        result=result,
     )
 
     return [
-        response.Submission.model_validate(submission_record)
+        response.Submission.model_validate(
+            submission_record.model_dump(
+                exclude={"problem", "uploaded_files", "judge_results"}
+            )
+        )
         for submission_record in submission_record_list
     ]
 
