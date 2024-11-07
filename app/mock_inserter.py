@@ -5,19 +5,20 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta
 from app.classes.models import (
     Base, Lecture, Problem, Users, BatchSubmission, EvaluationStatus,
-    Submission, UploadedFiles, JudgeResult, TestCases
+    Submission, JudgeResult, TestCases
 )
 from app.api.api_v1.endpoints import authenticate_util
+from sqlalchemy.orm import Session
 
 # データベースへの接続設定（必要に応じて修正してください）
 DATABASE_URL = "mysql+pymysql://user:password@localhost:3306/dsa"
 
 engine = create_engine(DATABASE_URL)
-Session = sessionmaker(bind=engine)
-session = Session()
+SessionLocal = sessionmaker(bind=engine)
+session = SessionLocal()
 
 # モックデータの追加
-def add_mock_data(db):
+def add_mock_data(db: Session):
     print("start to insert mock data")
     try:
         # 1. ユーザーの追加
@@ -116,6 +117,7 @@ def add_mock_data(db):
                         lecture_id=1,
                         assignment_id=assignment_id,
                         eval=False,
+                        upload_dir=f"sample_submission/{status['user_id']}",
                         progress="done",
                         total_task=7,
                         completed_task=7,
@@ -147,19 +149,7 @@ def add_mock_data(db):
                             stdout="1\n" if status["result"] == "AC" else "0\n",
                             stderr="" if status["result"] == "AC" else "Error: wrong answer\n"
                         )
-                        db.add(judge_result)
-
-                    # 提出ファイルの追加
-                    for file_name in [
-                        f"main_{'euclid' if assignment_id == 1 else 'recursive'}.c",
-                        f"gcd_{'euclid' if assignment_id == 1 else 'recursive'}.c",
-                        "Makefile"
-                    ]:
-                        uploaded_file = UploadedFiles(
-                            submission_id=submission.id,
-                            path=f"sample_submission/{status['user_id']}/{file_name}"
-                        )
-                        db.add(uploaded_file)
+                        db.add(judge_result)                    
 
                 db.commit()
         print("finish to insert mock data")
