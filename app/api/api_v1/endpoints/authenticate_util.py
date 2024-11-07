@@ -24,12 +24,17 @@ import secrets
 
 TOKYO_TZ = pytz.timezone("Asia/Tokyo")
 
-def generate_password(length=10):
+def generate_password():
     """
     ランダムなパスワードを生成する
+    r"[a-zA-Z0-9]{6}-[a-zA-Z0-9]{6}-[a-zA-Z0-9]{6}"のフォーマットになる。
     """
-    characters = string.ascii_letters + string.digits + string.punctuation
-    return "".join(secrets.choice(characters) for _ in range(length))
+    characters = string.ascii_letters + string.digits
+    parts = []
+    for _ in range(3):
+        part = "".join(secrets.choice(characters) for _ in range(6))
+        parts.append(part)
+    return "-".join(parts)
 
 
 def get_current_time() -> datetime:
