@@ -89,9 +89,7 @@ async def single_judge(
     upload_dir.mkdir(parents=True, exist_ok=True)
     
     # upload_dirをSubmissionテーブルに登録する
-    assignments.register_uploaded_dir(
-        db=db, submission_id=submission_record.id, upload_dir=str(upload_dir.relative_to(Path(constant.UPLOAD_DIR)))
-    )
+    submission_record.upload_dir = str(upload_dir.relative_to(Path(constant.UPLOAD_DIR)))
 
     for file in file_list:
         with file.file as source_file:
