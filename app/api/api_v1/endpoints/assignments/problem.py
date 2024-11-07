@@ -156,6 +156,14 @@ async def add_problem(
         # problem_data.md_fileのパスにファイルがあるか確かめる
         if not (current_dir / problem_data.md_file).exists():
             error_message += f"md_fileのパス({problem_data.md_file})にファイルがありません\n"
+            
+        # problem_data.test_filesのパスにファイルがあるか確かめる
+        for test_file in problem_data.test_files:
+            if not (current_dir / test_file).exists():
+                error_message += f"test_fileのパス({test_file})にファイルがありません\n"
+            # ファイルの拡張子が".sh"の場合、パーミッションに"x"をつける
+            if test_file.suffix == ".sh":
+                (current_dir / test_file).chmod(0o755)
         
         # problem_data.buildとproblem_data.judgeのstdin, stdout, stderrのパスにファイルがあるか確かめる
         for test_case in problem_data.build + problem_data.judge:
