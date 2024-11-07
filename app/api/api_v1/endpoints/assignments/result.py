@@ -267,9 +267,10 @@ async def fetch_uploaded_files_of_evaluation_status(
     # upload_dirのファイルの内容をtemp_dirに置いたZIPファイルに書き込む
     zip_file_path = temp_dir_path / f"uploaded_files.zip"
     with zipfile.ZipFile(zip_file_path, "w") as zipf:
-        for file_path in upload_dir_path.iterdir():
+        for file_path in upload_dir_path.rglob("*"):
             if file_path.is_file():
-                zipf.write(file_path, arcname=file_path.name)
+                arcname = file_path.relative_to(upload_dir_path)
+                zipf.write(file_path, arcname=arcname)
     
     return FileResponse(zip_file_path, filename="uploaded_files.zip", media_type="application/zip", background=BackgroundTask(delete_temp_dir, temp_dir))
 
