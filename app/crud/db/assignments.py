@@ -230,6 +230,7 @@ def register_submission(
     lecture_id: int,
     assignment_id: int,
     eval: bool,
+    upload_dir: str
 ) -> schemas.Submission:
     """
     ジャッジリクエストをSubmissionテーブルに登録する関数
@@ -240,6 +241,7 @@ def register_submission(
         lecture_id=lecture_id,
         assignment_id=assignment_id,
         eval=eval,
+        upload_dir=upload_dir,
     )
     db.add(new_submission)
     db.commit()
@@ -269,6 +271,7 @@ def get_submission(db: Session, submission_id: int, detail: bool = False) -> sch
             lecture_id=submission.lecture_id,
             assignment_id=submission.assignment_id,
             eval=submission.eval,
+            upload_dir=submission.upload_dir,
             progress=schemas.SubmissionProgressStatus(submission.progress),
             total_task=submission.total_task,
             completed_task=submission.completed_task,
@@ -289,16 +292,17 @@ def modify_submission(db: Session, submission: schemas.Submission) -> None:
     """
     db.query(models.Submission).filter(
         models.Submission.id == submission.id
-    ).update(submission.model_dump(exclude={"uploaded_files", "judge_results", "problem"}))
+    ).update(submission.model_dump(exclude={"judge_results", "problem"}))
     db.commit()
 
 
-def register_uploaded_file(db: Session, submission_id: int, path: Path) -> None:
+def register_uploaded_dir(db: Session, submission_id: int, upload_dir: str) -> None:
     """
     アップロードされたファイルをUploadedFilesテーブルに登録する関数
     """
-    new_uploadedfile = models.UploadedFiles(submission_id=submission_id, path=str(path))
-    db.add(new_uploadedfile)
+    db.query(models.Submission).filter(models.Submission.id == submission_id).update(
+        {"upload_dir": upload_dir}
+    )
     db.commit()
 
 
@@ -401,7 +405,7 @@ def get_submission_list(
         schemas.Submission.model_validate(
             {
                 **{key: getattr(submission, key) for key in submission.__table__.columns.keys()
-                   if key not in {"problem", "uploaded_files", "judge_results"}
+                   if key not in {"problem", "judge_results"}
                 }
             }
         )
@@ -519,7 +523,7 @@ def get_batch_submission_detail(
             submission_record = schemas.Submission.model_validate(
                 {
                     **{key: getattr(submission, key) for key in submission.__table__.columns.keys()
-                       if key not in {"problem", "uploaded_files", "judge_results"}
+                       if key not in {"problem", "judge_results"}
                     }
                 }
             )
@@ -646,18 +650,6 @@ def get_batch_submission_list(
         for batch_submission in batch_submission_list
     ]
     return result, total_count
-
-
-def get_uploaded_files(
-    db: Session, submission_id: int
-) -> List[schemas.UploadedFiles]:
-    """
-    特定の提出エントリに紐づいたアップロードファイルのリストを取得する関数
-    """
-    uploaded_files = (
-        db.query(models.UploadedFiles).filter(models.UploadedFiles.submission_id == submission_id).all()
-    )
-    return [schemas.UploadedFiles.model_validate(uploaded_file) for uploaded_file in uploaded_files]
 
 
 def get_arranged_files(

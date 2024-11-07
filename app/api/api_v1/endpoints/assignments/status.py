@@ -81,7 +81,7 @@ async def read_all_submission_status_of_me(
     return [
         response.Submission.model_validate(
             submission_record.model_dump(
-                exclude={"problem", "uploaded_files", "judge_results"}
+                exclude={"problem", "judge_results"}
             )
         )
         for submission_record in submission_record_list
@@ -173,31 +173,34 @@ async def read_uploaded_file_list(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="評価問題の提出は取得できません",
             )
-    
-    # アップロードされたファイルのリストを取得する
+
     if type == "uploaded":
-        file_list = assignments.get_uploaded_files(db, submission_id)
+        temp_dir = tempfile.TemporaryDirectory()
+        temp_dir_path = Path(temp_dir.name)
+        zip_file_path = temp_dir_path / "uploaded_files.zip"
+        upload_dir = Path(constant.UPLOAD_DIR) / submission_record.upload_dir
+        # upload_dirの中身まるごとzipファイルにする
+        with zipfile.ZipFile(zip_file_path, "w") as zipf:
+            for file in upload_dir.glob("**/*"):
+                if file.is_file():
+                    zipf.write(file, arcname=file.relative_to(upload_dir))
+        return FileResponse(zip_file_path, filename="uploaded_files.zip", media_type="application/zip", background=BackgroundTask(delete_temp_dir, temp_dir))
     elif type == "arranged":
+        # arranged_filesのファイル全てをzipファイルにする
+        temp_dir = tempfile.TemporaryDirectory()
+        temp_dir_path = Path(temp_dir.name)
+        zip_file_path = temp_dir_path / "arranged_files.zip"
         file_list = assignments.get_arranged_files(db=db, lecture_id=submission_record.lecture_id, assignment_id=submission_record.assignment_id, eval=submission_record.eval)
+        with zipfile.ZipFile(zip_file_path, "w") as zipf:
+            for file in file_list:
+                file_path = Path(constant.RESOURCE_DIR) / file.path
+                zipf.write(file_path, arcname=file_path.name)
+        return FileResponse(zip_file_path, filename="arranged_files.zip", media_type="application/zip", background=BackgroundTask(delete_temp_dir, temp_dir))
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="typeは'uploaded'か'arranged'のみ指定できます",
         )
-
-    temp_dir = tempfile.TemporaryDirectory()
-        
-    temp_dir_path = Path(temp_dir.name)
-    
-    # アップロードされたファイルのリストをZIPファイルとして取得する
-    zip_file_path = temp_dir_path / f"{type}_files.zip"
-    with zipfile.ZipFile(zip_file_path, "w") as zipf:
-        for file in file_list:
-            file_path = Path(constant.UPLOAD_DIR) / file.path if type == "uploaded" else Path(constant.RESOURCE_DIR) / file.path
-            zipf.write(file_path, arcname=file_path.name)
-    
-    return FileResponse(zip_file_path, filename=f"{type}_files.zip", media_type="application/zip", background=BackgroundTask(delete_temp_dir, temp_dir))
-
 
 # バッチ採点に関しては、ManagerとAdminが全てのバッチ採点の進捗状況を見れるようにしている。
 
