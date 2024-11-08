@@ -78,6 +78,7 @@ async def single_judge(
         lecture_id=lecture_id,
         assignment_id=assignment_id,
         eval=eval,
+        upload_dir="/tmp" # 仮の値
     )
 
     # アップロードされたファイルを/upload/{current_user.user_id}/{submission_record.ts}-{submission_id}に配置する
@@ -86,16 +87,17 @@ async def single_judge(
         shutil.rmtree(upload_dir)
 
     upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    # upload_dirをSubmissionテーブルに登録する
+    submission_record.upload_dir = str(upload_dir.relative_to(Path(constant.UPLOAD_DIR)))
 
     for file in file_list:
         with file.file as source_file:
-            dest_path = upload_dir / file.filename
+            # filenameがNoneの場合は"unnamed_file_{index}"という名前を付ける
+            filename = file.filename if file.filename is not None else f"unnamed_file_{file_list.index(file)}"
+            dest_path = upload_dir / filename
             with open(dest_path, "wb") as dest_file:
                 shutil.copyfileobj(source_file, dest_file)
-            # アップロードされたファイルをUploadedFilesテーブルに登録する
-            assignments.register_uploaded_file(
-                db=db, submission_id=submission_record.id, path=dest_path.relative_to(Path(constant.UPLOAD_DIR))
-            )
 
     # 提出エントリをキューに登録する
     submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
@@ -131,13 +133,8 @@ async def judge_all_by_lecture(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="授業エントリが見つかりません",
         )
-
-    # 授業エントリに紐づく全ての練習問題を採点する
-    problem_detail_list = assignments.get_problem_detail_list(
-        db=db,
-        lecture_id=lecture_id,
-        eval=eval,
-    )
+    
+    problem_list = [problem for problem in lecture_entry.problems]
     
     if uploaded_zip_file.filename != f"class{lecture_id}.zip":
         raise HTTPException(
@@ -181,7 +178,7 @@ async def judge_all_by_lecture(
     if not report_path.exists():
         # 一番最初の問題について、Submissionエントリ/SubmissionSummaryエントリを作成し、
         # 何もジャッジされていないことを表す
-        problem = problem_detail_list[0]
+        problem = problem_list[0]
         submission_record = assignments.register_submission(
             db=db,
             evaluation_status_id=None,
@@ -189,6 +186,7 @@ async def judge_all_by_lecture(
             lecture_id=problem.lecture_id,
             assignment_id=problem.assignment_id,
             eval=eval,
+            upload_dir=str(upload_dir.relative_to(Path(constant.UPLOAD_DIR)))
         )
         
         submission_record.progress = schemas.SubmissionProgressStatus.DONE
@@ -204,34 +202,17 @@ async def judge_all_by_lecture(
     submission_record_list = []
     
     # 各Problemエントリごとに、Submissionエントリを作成する
-    for problem_detail in problem_detail_list:
+    for problem_entry in problem_list:
         # ジャッジリクエストをSubmissionテーブルに登録する
         submission_record = assignments.register_submission(
             db=db,
             evaluation_status_id=None,
             user_id=current_user.user_id,
-            lecture_id=problem_detail.lecture_id,
-            assignment_id=problem_detail.assignment_id,
+            lecture_id=problem_entry.lecture_id,
+            assignment_id=problem_entry.assignment_id,
             eval=eval,
+            upload_dir=str(upload_dir.relative_to(Path(constant.UPLOAD_DIR)))
         )
-
-        # workspace_dirの中に、required_file_listに含まれるファイルがあるかチェックする
-        for required_file in problem_detail.required_files:
-            required_file_path = workspace_dir / required_file.name
-            if not required_file_path.exists():
-                continue
-            
-            # ファイルをUploadedFilesテーブルに登録する
-            assignments.register_uploaded_file(
-                db=db, submission_id=submission_record.id, path=required_file_path.relative_to(Path(constant.UPLOAD_DIR))
-            )
-            
-        # report{lecture_id}.pdfもUploadedFilesテーブルに登録す
-        if report_path.exists():
-            assignments.register_uploaded_file(
-                db=db, submission_id=submission_record.id, path=report_path.relative_to(Path(constant.UPLOAD_DIR))
-            )
-
         # 提出エントリをキューに登録する
         submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
         assignments.modify_submission(db=db, submission=submission_record)

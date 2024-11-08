@@ -105,12 +105,8 @@ async def batch_judge(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="授業エントリが公開期間内ではありません",
             )
-
-    problem_detail_list = assignments.get_problem_detail_list(
-        db=db,
-        lecture_id=lecture_id,
-        eval=eval,
-    )
+    
+    problem_list = [problem for problem in lecture_entry.problems]
 
     # バッチ採点のリクエストをBatchSubmissionテーブルに登録する
     batch_submission_record = assignments.register_batch_submission(
@@ -304,10 +300,19 @@ async def batch_judge(
         # アップロード先ディレクトリを設定する
         evaluation_status_record.upload_dir = str(user_upload_dir.relative_to(Path(constant.UPLOAD_DIR)))
         
-        # レポートのパス(アップロード先にreport1.pdfがあるはず、なかったらNone)
-        report_path = user_upload_dir / "report1.pdf"
+        # レポートのパス
+        # アップロード先にreport{lecture_id}.pdfがあるはず
+        report_path = user_upload_dir / f"report{lecture_id}.pdf"
         if report_path.exists():
             evaluation_status_record.report_path = str(report_path.relative_to(Path(constant.UPLOAD_DIR)))
+        else:
+            # pdfファイルが一つだけある場合
+            report_path_list = list(user_upload_dir.glob("*.pdf"))
+            if len(report_path_list) == 1:
+                evaluation_status_record.report_path = str(report_path_list[0].relative_to(Path(constant.UPLOAD_DIR)))
+            else:
+                # pdfファイルが複数ある場合、もしくは一つもない場合は、Noneとする
+                evaluation_status_record.report_path = None
         
         # 提出日時を設定する
         evaluation_status_record.submit_date = submit_date
@@ -332,30 +337,20 @@ async def batch_judge(
         # 提出済みの場合は、ジャッジを行う
         
         # 各課題ごとにジャッジリクエストを発行する
-        for problem_detail in problem_detail_list:
+        for problem_entry in problem_list:
             # ジャッジリクエストをSubmissionテーブルに登録する
             submission_record = assignments.register_submission(
                 db=db,
                 evaluation_status_id=evaluation_status_record.id,
                 user_id=evaluation_status_record.user_id,
-                lecture_id=problem_detail.lecture_id,
-                assignment_id=problem_detail.assignment_id,
+                lecture_id=problem_entry.lecture_id,
+                assignment_id=problem_entry.assignment_id,
                 eval=eval,
+                upload_dir=evaluation_status_record.upload_dir,
             )
             
             total_judge += 1
 
-            # uploaded_filepath_listの中から、required_filesに含まれているファイルのみ、
-            # UploadedFilesテーブルに登録する
-            for required_file in problem_detail.required_files:
-                fp = Path(constant.UPLOAD_DIR) / evaluation_status_record.upload_dir / required_file.name
-                if fp.exists():
-                    assignments.register_uploaded_file(
-                        db=db,
-                        submission_id=submission_record.id,
-                        path=fp.relative_to(Path(constant.UPLOAD_DIR))
-                    )
-            
             # 提出エントリをキューに登録する
             submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
             assignments.modify_submission(

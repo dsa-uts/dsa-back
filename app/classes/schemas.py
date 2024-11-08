@@ -261,6 +261,7 @@ class Submission(BaseModel):
     lecture_id: int
     assignment_id: int
     eval: bool
+    upload_dir: str
     progress: SubmissionProgressStatus
     total_task: int = Field(default=0)
     completed_task: int = Field(default=0)
@@ -273,7 +274,6 @@ class Submission(BaseModel):
 
     problem: Problem | None = Field(default=None)
 
-    uploaded_files: list["UploadedFiles"] = Field(default_factory=list)
     judge_results: list["JudgeResult"] = Field(default_factory=list)
 
     model_config = {
@@ -292,16 +292,6 @@ class Submission(BaseModel):
     @field_serializer("result")
     def serialize_result(self, result: SubmissionSummaryStatus, _info):
         return result.value if result is not None else None
-
-
-class UploadedFiles(BaseModel):
-    id: int = Field(default=0)
-    submission_id: int
-    path: str
-
-    model_config = {
-        "from_attributes": True
-    }
 
 
 class JudgeResult(BaseModel):
