@@ -384,7 +384,7 @@ class UserDelete(BaseModel):
 class UserUpdatePassword(BaseModel):
     user_id: str
     plain_password: str
-    new_plain_password: str
+    new_plain_password: str = Field(min_length=6, max_length=50)
 
 
 # JWTトークンのペイロード({"sub": ..., "login": ...,...)})
