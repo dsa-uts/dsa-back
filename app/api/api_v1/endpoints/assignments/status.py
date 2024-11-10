@@ -43,6 +43,8 @@ async def read_all_submission_status_of_me(
     """
     自身に紐づいた提出の進捗状況を取得する
     """
+    include_eval = False
+    include_private_problem = False
     if current_user.role in [schemas.Role.admin, schemas.Role.manager]:
         include_eval = True
         include_private_problem = True
