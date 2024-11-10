@@ -235,10 +235,15 @@ async def get_users_list(
         schemas.UserRecord,
         Security(authenticate_util.get_current_user, scopes=["view_users"]),
     ],
-    # TAは自分とstudentのユーザーを取得可能
     user_id: Optional[str] = None,
     role: Optional[str] = None
 ) -> List[response.User]:
+    '''
+    role: 検索対象のユーザのroleをカンマ区切りで指定する。以降、rolesとする。
+    
+    以下のクエリを実行して、ユーザーを取得する。
+    SELECT * FROM Users WHERE user_id = user_id OR role IN roles
+    '''
     # パスワードを除外して返す
     roles = [r.strip() for r in role.split(',')] if role else None
     return [

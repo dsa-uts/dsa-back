@@ -17,6 +17,10 @@ def get_user(db: Session, user_id: str) -> schemas.UserRecord | None:
 
 
 def get_users(db: Session, user_id: Optional[str] = None, roles: Optional[List[str]] = None) -> List[schemas.UserRecord]:
+    '''
+    SELECT * FROM Users
+    WHERE user_id = user_id OR role IN roles
+    '''
     query = db.query(models.Users)
     if user_id or roles:
         filter_conditions = []
