@@ -297,9 +297,12 @@ async def get_user_info(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[
         schemas.UserRecord,
-        Security(authenticate_util.get_current_user, scopes=["view_users"]),
+        Security(authenticate_util.get_current_user, scopes=["me"]),
     ],
 ) -> response.User:
+    if current_user.role not in [schemas.Role.admin, schemas.Role.manager]:
+        if current_user.user_id != user_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden to access other user's information")
     user_record = crud_users.get_user(db=db, user_id=user_id)
     if user_record is None:
         raise HTTPException(status_code=404, detail="User not found")
