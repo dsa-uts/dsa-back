@@ -121,12 +121,13 @@ async def add_problem(
             # 例: __MACOSXなどのメタ情報フォルダが含まれるケース
             current_dir = current_dir / Path(upload_file.filename).stem
         
-        # *.jsonという名のファイルが一つだけ、カレントディレクトリのトップに存在するか調べる
         json_files = [f for f in current_dir.iterdir() if f.is_file() and f.suffix == ".json"]
-        if len(json_files) != 1:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSONファイルが複数あり、どれが設定ファイルかわかりません")
+        if len(json_files) == 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSONファイルがありません")
         
-        init_json_path = json_files[0]
+        init_json_path = current_dir / "init.json"
+        if not init_json_path.exists():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="init.jsonがありません")
         
         # ファイルの内容を読み込む
         with open(init_json_path, "r") as f:
@@ -303,12 +304,13 @@ async def update_problem(
             # 例: __MACOSXなどのメタ情報フォルダが含まれるケース
             current_dir = current_dir / Path(upload_file.filename).stem
         
-        # *.jsonという名のファイルが一つだけ、カレントディレクトリのトップに存在するか調べる
         json_files = [f for f in current_dir.iterdir() if f.is_file() and f.suffix == ".json"]
-        if len(json_files) != 1:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSONファイルが複数あり、どれが設定ファイルかわかりません")
+        if len(json_files) == 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSONファイルがありません")
         
-        init_json_path = json_files[0]
+        init_json_path = current_dir / "init.json"
+        if not init_json_path.exists():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="init.jsonがありません")
         
         # ファイルの内容を読み込む
         with open(init_json_path, "r") as f:
