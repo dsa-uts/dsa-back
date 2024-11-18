@@ -163,7 +163,7 @@ async def add_problem(
             if not (current_dir / test_file).exists():
                 error_message += f"test_fileのパス({test_file})にファイルがありません\n"
             # ファイルの拡張子が".sh"の場合、パーミッションに"x"をつける
-            if test_file.suffix == ".sh":
+            elif test_file.suffix == ".sh":
                 (current_dir / test_file).chmod(0o755)
         
         # problem_data.buildとproblem_data.judgeのstdin, stdout, stderrのパスにファイルがあるか確かめる
@@ -332,16 +332,24 @@ async def update_problem(
         except ValidationError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         
-        # Problemテーブルに該当する小課題があるなら、それを削除する
-        if assignments.get_problem(db, lecture_id, problem_data.sub_id) is not None:
-            assignments.delete_problem(db, lecture_id, problem_data.sub_id)
         
-        # 小課題データを登録する
         error_message = ""
         # problem_data.md_fileのパスにファイルがあるか確かめる
         if not (current_dir / problem_data.md_file).exists():
             error_message += f"md_fileのパス({problem_data.md_file})にファイルがありません\n"
         
+        # problem_data.test_filesのパスにファイルがあるか確かめる
+        for test_file in problem_data.test_files:
+            if not (current_dir / test_file).exists():
+                error_message += f"test_fileのパス({test_file})にファイルがありません\n"
+            # ファイルの拡張子が".sh"の場合、パーミッションに"x"をつける
+            elif test_file.suffix == ".sh":
+                (current_dir / test_file).chmod(0o755)
+        
+        # Problemテーブルに該当する小課題があるなら、それを削除する
+        if assignments.get_problem(db, lecture_id, problem_data.sub_id) is not None:
+            assignments.delete_problem(db, lecture_id, problem_data.sub_id)
+
         # problem_data.buildとproblem_data.judgeのstdin, stdout, stderrのパスにファイルがあるか確かめる
         for test_case in problem_data.build + problem_data.judge:
             if test_case.stdin is not None and not (current_dir / test_case.stdin).exists():
