@@ -349,13 +349,7 @@ async def update_problem(
         # Problemテーブルに該当する小課題があるなら、それを削除する
         if assignments.get_problem(db, lecture_id, problem_data.sub_id) is not None:
             assignments.delete_problem(db, lecture_id, problem_data.sub_id)
-        
-        # 小課題データを登録する
-        error_message = ""
-        # problem_data.md_fileのパスにファイルがあるか確かめる
-        if not (current_dir / problem_data.md_file).exists():
-            error_message += f"md_fileのパス({problem_data.md_file})にファイルがありません\n"
-        
+
         # problem_data.buildとproblem_data.judgeのstdin, stdout, stderrのパスにファイルがあるか確かめる
         for test_case in problem_data.build + problem_data.judge:
             if test_case.stdin is not None and not (current_dir / test_case.stdin).exists():
