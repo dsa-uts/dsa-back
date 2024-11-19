@@ -65,8 +65,11 @@ def unfold_zip(uploaded_zip_file: Path, dest_dir: Path) -> str | None:
         return "zipファイルの展開後の容量が30MBを超えています。"
 
     # 展開する
-    with zipfile.ZipFile(uploaded_zip_file, "r") as zip_ref:
-        zip_ref.extractall(dest_dir)
+    try:
+        with zipfile.ZipFile(uploaded_zip_file, "r") as zip_ref:
+            zip_ref.extractall(dest_dir)
+    except Exception as e:
+        return f"zipファイルの展開に失敗しました: {e}"
     
     # 空の場合
     if len(list(dest_dir.iterdir())) == 0:

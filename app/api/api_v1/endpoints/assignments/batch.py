@@ -127,8 +127,15 @@ async def batch_judge(
         workspace_dir_path = Path(workspace_dir)
 
         # アップロードされたzipファイルをworkspace_dirに展開する
-        with zipfile.ZipFile(uploaded_zip_file.file, "r") as zip_ref:
-            zip_ref.extractall(workspace_dir_path)
+        try:
+            with zipfile.ZipFile(uploaded_zip_file.file, "r") as zip_ref:
+                zip_ref.extractall(workspace_dir_path)
+        except Exception as e:
+            shutil.rmtree(batch_dir)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"zipファイルの展開に失敗しました: {e}",
+            )
 
         current_dir = workspace_dir_path
         if (
@@ -214,19 +221,33 @@ async def batch_judge(
                 error_message += f"{user_id}はユーザDBに登録されていません\n"
                 continue
             
+            # 展開先のディレクトリを作成する
+            user_zip_file_extract_dest = batch_dir / user_id
+            user_zip_file_extract_dest.mkdir(parents=True, exist_ok=True)
+            
             # ユーザのclass{lecture_id}.zipの内容を展開し、
             # {batch_dir}/{user_id}/に配置する
             user_zip_file_on_workspace = user_dir / f"class{lecture_id}.zip"
             if not user_zip_file_on_workspace.exists():
                 error_message += f"{user_id}は提出済みであるにも関わらず、class{lecture_id}.zipを提出していません\n"
-                continue
-            
-            user_zip_file_extract_dest = batch_dir / user_id
-            user_zip_file_extract_dest.mkdir(parents=True, exist_ok=True)
-            message = unfold_zip(user_zip_file_on_workspace, user_zip_file_extract_dest)
-            if message is not None:
-                error_message += f"{user_id}のZipファイルの解凍中にエラーが発生しました: {message}\n"
-                continue
+                ################## important ##################
+                # もし、class{lecture_id}.zipが存在しない場合は、他のファイルをなるべく展開先のディレクトリにコピーする
+                for file in user_dir.iterdir():
+                    # もしzipファイルなら、展開する
+                    if file.is_file() and file.name.endswith(".zip"):
+                        message = unfold_zip(file, user_zip_file_extract_dest)
+                        if message is not None:
+                            error_message += f"{user_id}のZipファイルの解凍中にエラーが発生しました: {message}\n"
+                            continue
+                    else:
+                        shutil.copy(file, user_zip_file_extract_dest)
+            else:
+                ################## important ##################
+                # class{lecture_id}.zipが存在する場合は、それを展開する
+                message = unfold_zip(user_zip_file_on_workspace, user_zip_file_extract_dest)
+                if message is not None:
+                    error_message += f"{user_id}のZipファイルの解凍中にエラーが発生しました: {message}\n"
+                    continue
 
     # reportlist.xlsxを読み込み、未提出も含めて、採点対象の学生のリストを取得する
     # 取得する情報、学籍番号、提出状況(提出済/受付終了後提出/未提出)、提出日時(None | datetime)
@@ -294,7 +315,7 @@ async def batch_judge(
         user_upload_dir = batch_dir / user_id
         
         if not user_upload_dir.exists():
-            error_message += f"{index}行目のユーザは提出済みであるにも関わらず、フォルダが存在しません\n"
+            error_message += f"{user_id}は提出済みであるにも関わらず、フォルダが存在しません\n"
             continue
         
         # アップロード先ディレクトリを設定する
