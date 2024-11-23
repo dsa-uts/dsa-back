@@ -766,7 +766,7 @@ def modify_all_submission_statuses_of_batch_submission(
         models.EvaluationStatus.batch_id == models.BatchSubmission.id
     ).filter(
         models.BatchSubmission.id == batch_id
-    ).scalar_subquery()
+    ).subquery()
 
     # 取得したIDに一致するSubmissionのprogressを更新
     db.query(models.Submission).filter(
