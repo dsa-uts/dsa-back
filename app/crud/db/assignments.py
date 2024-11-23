@@ -1,6 +1,6 @@
 from app.classes import schemas
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, asc, desc
+from sqlalchemy import and_, or_, asc, desc, select
 from ...classes import models
 from typing import List, Literal, Tuple
 from datetime import datetime
@@ -749,3 +749,31 @@ def get_evaluation_status_detail(
         .first()
     )
     return schemas.EvaluationStatus.model_validate(evaluation_status) if evaluation_status is not None else None
+
+
+def modify_all_submission_statuses_of_batch_submission(
+    db: Session, batch_id: int, status: schemas.SubmissionProgressStatus
+) -> None:
+    """
+    特定のバッチ採点の全ての提出の進捗状況を更新する関数
+    """
+    # 更新対象のSubmissionのIDを取得
+    subquery = select(models.Submission.id).join(
+        models.EvaluationStatus,
+        models.Submission.evaluation_status_id == models.EvaluationStatus.id
+    ).join(
+        models.BatchSubmission,
+        models.EvaluationStatus.batch_id == models.BatchSubmission.id
+    ).filter(
+        models.BatchSubmission.id == batch_id
+    ).scalar_subquery()
+
+    # 取得したIDに一致するSubmissionのprogressを更新
+    db.query(models.Submission).filter(
+        models.Submission.id.in_(subquery)
+    ).update(
+        {"progress": status.value},
+        synchronize_session=False
+    )
+    
+    db.commit()
