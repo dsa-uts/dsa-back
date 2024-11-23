@@ -371,12 +371,6 @@ async def batch_judge(
             )
             
             total_judge += 1
-
-            # 提出エントリをキューに登録する
-            submission_record.progress = schemas.SubmissionProgressStatus.QUEUED
-            assignments.modify_submission(
-                db=db, submission=submission_record
-            )
     
     # エラーメッセージを設定する
     batch_submission_record.message = error_message
@@ -385,6 +379,9 @@ async def batch_judge(
     batch_submission_record.total_judge = total_judge
 
     assignments.modify_batch_submission(db=db, batch_submission_record=batch_submission_record)
+    
+    # 全てのSubmissionの進捗状況をqueuedに更新する
+    assignments.modify_all_submission_statuses_of_batch_submission(db=db, batch_id=batch_id, status=schemas.SubmissionProgressStatus.QUEUED)
 
     return response.BatchSubmission.model_validate(batch_submission_record)
 
