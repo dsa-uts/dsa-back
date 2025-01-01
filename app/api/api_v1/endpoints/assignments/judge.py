@@ -172,7 +172,19 @@ async def judge_all_by_lecture(
     ├── main.c
     ...
     '''
+
+    """
+    .oファイルがあると、コンパイルエラーになり、本来はコンパイルできるはずのコードが
+    ジャッジされないことがあるため、.oファイルを削除しておく
     
+    例: 
+    main_binarytree.o: file not recognized: file format not recognized
+    collect2: error: ld returned 1 exit status
+    make: *** [<builtin>: binarytree] Error 1
+    """
+    for file in workspace_dir.glob("*.o"):
+        file.unlink()
+
     # report{lecture_id}.pdfが存在するかチェックする
     report_path = workspace_dir / f"report{lecture_id}.pdf"
     if not report_path.exists():
