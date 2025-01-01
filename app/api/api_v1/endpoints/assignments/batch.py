@@ -248,6 +248,17 @@ async def batch_judge(
                 if message is not None:
                     error_message += f"{user_id}のZipファイルの解凍中にエラーが発生しました: {message}\n"
                     continue
+            
+            """
+            NOTE: .oファイルがあると、コンパイルエラーになり、本来はコンパイルできるはずのコードが
+            ジャッジされないことがあるため、.oファイルを削除しておく
+            例: 
+            main_binarytree.o: file not recognized: file format not recognized
+            collect2: error: ld returned 1 exit status
+            make: *** [<builtin>: binarytree] Error 1
+            """
+            for file in user_zip_file_extract_dest.glob("*.o"):
+                file.unlink()
 
     # reportlist.xlsxを読み込み、未提出も含めて、採点対象の学生のリストを取得する
     # 取得する情報、学籍番号、提出状況(提出済/受付終了後提出/未提出)、提出日時(None | datetime)
