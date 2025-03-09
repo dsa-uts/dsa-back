@@ -5,7 +5,6 @@ from fastapi.responses import JSONResponse, FileResponse
 from app.api.api_v1.endpoints import api_router
 from app.crud.db import init_db
 from contextlib import asynccontextmanager
-from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
 from app.dependencies import get_db
 import os
