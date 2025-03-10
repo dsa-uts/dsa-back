@@ -9,7 +9,6 @@ from app.classes.models import Base
 from app.api.api_v1.endpoints import authenticate_util
 from app import constants
 from app.crud.db.users import create_user, admin_user_exists
-from app.mock_inserter import add_mock_data
 
 DATABASE_URL = f"mysql+pymysql://{constants.DATABASE_USER}:{constants.DATABASE_PASSWORD}@{constants.DATABASE_HOST}/{constants.DATABASE_NAME}"
 
@@ -24,8 +23,6 @@ def init_db():
     db = SessionLocal()
     try:
         if admin_user_exists(db):
-            if constants.ENV == "development":
-                add_mock_data(db)
             db.close()
             return
         
@@ -44,9 +41,6 @@ def init_db():
                 active_end_date=datetime.fromisoformat(constants.ADMIN_END_DATE),
             )
         )
-        
-        if constants.ENV == "development":
-            add_mock_data(db)
             
     except Exception as e:
         logging.error(f"Error initializing database: {e}")
