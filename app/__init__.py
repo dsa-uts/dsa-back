@@ -58,10 +58,10 @@ def create_app() -> FastAPI:
     return app
 
 
-# ゲートウェイサーバ(オリジン: http://localhost:80)からのアクセスを許可するための
+# ゲートウェイサーバ(オリジン: https://dsa-jikken.jp)からのアクセスを許可するための
 # CORS設定
 origins = [
-    "http://localhost:80",
+    "https://dsa-jikken.jp",
 ]
 
 app = create_app()
