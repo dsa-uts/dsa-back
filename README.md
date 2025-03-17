@@ -3,26 +3,23 @@
    注意: このセクションは，ローカル環境でインテリセンスが利くようにするための手順について
    記述している．実際にアプリを動かす際には，venvを作成しなくても良い．
 
+   Pythonパッケージマネージャーの[uv](https://docs.astral.sh/uv/)をインストールする．
+   ```bash
+   # macOSまたはLinuxの場合
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   # 実行後、環境変数の設定が即座に反映されない場合は、シェルを開きなおしてください
+   # バージョン確認
+   uv --version
+   ```
+
    venvを作成する．
-   ```
-   .../dsa_back$ python3 -m venv .venv
-   ```
-
-   venvをactivateする．
-   ```
-   .../dsa_back$ . .venv/bin/activate
+   ```bash
+   .../dsa-back$ uv sync
    ```
 
-   pipでパッケージをインストールする．すると，requirements.txtに書かれたパッケージが.venvに
-   インストールされる．
-   ```
-   .../dsa_back$ pip install -r requirements.txt
-   ```
-
-   現在適用しているvenvを解除したい場合は，以下のコマンドを実行する．
-   どのディレクトリ上でも実行できる．
-   ```
-   $ deactivate
+   venvをactivateする
+   ```bash
+   .../dsa-back$ . .venv/bin/activate
    ```
 
 2. 環境変数の設定  
